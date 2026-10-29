@@ -13,4 +13,8 @@
     <PackageReference Include="NAudio" Version="3.3.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Resource Include="app.ico" />
+  </ItemGroup>
+
 </Project>
