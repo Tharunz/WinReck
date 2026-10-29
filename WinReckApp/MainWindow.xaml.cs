@@ -2032,15 +2032,19 @@ namespace WinReckApp
         {
             if (_saveDirectlyToSelectedFolder)
             {
-                DirectSaveCheckBox.Background = new SolidColorBrush(Color.FromRgb(0, 45, 60));
+                DirectSaveCheckBox.Background = new SolidColorBrush(Color.FromArgb(60, 0, 229, 255));
                 DirectSaveCheckBox.BorderBrush = new SolidColorBrush(CyanNeon);
-                DirectSaveCheckMark.Visibility = Visibility.Visible;
+                DirectSaveFolderIcon.Opacity = 1.0;
+                DirectSaveBadgeDot.Visibility = Visibility.Visible;
+                DirectSaveCheckBox.ToolTip = "Direct save enabled: saves directly into selected folder";
             }
             else
             {
-                DirectSaveCheckBox.Background = new SolidColorBrush(Color.FromRgb(16, 16, 20));
-                DirectSaveCheckBox.BorderBrush = new SolidColorBrush(Color.FromRgb(53, 53, 69));
-                DirectSaveCheckMark.Visibility = Visibility.Collapsed;
+                DirectSaveCheckBox.Background = new SolidColorBrush(Color.FromRgb(20, 20, 24));
+                DirectSaveCheckBox.BorderBrush = new SolidColorBrush(Color.FromRgb(44, 44, 56));
+                DirectSaveFolderIcon.Opacity = 0.55;
+                DirectSaveBadgeDot.Visibility = Visibility.Collapsed;
+                DirectSaveCheckBox.ToolTip = "Click to save directly to selected folder (no folder picker prompt)";
             }
         }
 

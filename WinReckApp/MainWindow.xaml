@@ -183,12 +183,8 @@
         </Style>
     </Window.Resources>
 
-    <Grid Margin="12">
-        <Border x:Name="RootBorder" Background="#060606" CornerRadius="16" BorderBrush="#1E1E1E" BorderThickness="1" ClipToBounds="True">
-            <Border.Effect>
-                <DropShadowEffect Color="#000000" BlurRadius="30" ShadowDepth="5" Opacity="0.92" Direction="270"/>
-            </Border.Effect>
-
+    <Grid Margin="0">
+        <Border x:Name="RootBorder" Background="#060606" CornerRadius="0" BorderBrush="#1E1E1E" BorderThickness="1" ClipToBounds="True">
             <Grid>
                 <!-- ======================== SPLASH SCREEN (matches image 2 exactly) ======================== -->
                 <Grid x:Name="SplashGrid" Background="#000000" Panel.ZIndex="100">
@@ -434,18 +430,19 @@
 
                                             <StackPanel x:Name="PausedActionControls" Orientation="Horizontal" Visibility="Collapsed">
                                                 <Button x:Name="BtnPreviewLive" Click="BtnPreviewLive_Click" Content="Play Preview" Style="{StaticResource PillButtonStyle}" Margin="0,0,7,0"/>
-                                                <Button x:Name="BtnSaveRecording" Click="BtnSaveRecording_Click" Content="Save" Style="{StaticResource PillButtonStyle}" Margin="0,0,7,0"/>
-                                                <Button x:Name="BtnClearRecording" Click="BtnClearRecording_Click" Content="Clear" Style="{StaticResource PillButtonStyle}" Margin="0,0,9,0" ToolTip="Discard recording and reset"/>
+                                                
+                                                <!-- Save button with integrated/adjacent quick folder badge -->
+                                                <Button x:Name="BtnSaveRecording" Click="BtnSaveRecording_Click" Content="Save" Style="{StaticResource PillButtonStyle}" Margin="0,0,5,0"/>
 
-                                                <!-- Checkbox to save directly to selected folder -->
-                                                <Border Background="#141418" BorderBrush="#252530" BorderThickness="1" CornerRadius="12" Padding="7,3" VerticalAlignment="Center" Cursor="Hand" ToolTip="When checked, clicking Save saves directly into the currently selected folder without asking" MouseLeftButtonDown="ToggleDirectSaveOption_Click">
-                                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                                        <Border x:Name="DirectSaveCheckBox" Width="13" Height="13" Background="#0C0C10" BorderBrush="#353545" BorderThickness="1" CornerRadius="3" VerticalAlignment="Center" Margin="0,0,6,0">
-                                                            <TextBlock x:Name="DirectSaveCheckMark" Text="✓" FontSize="9.5" Foreground="#00E5FF" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-1,0,0" Visibility="Collapsed"/>
-                                                        </Border>
-                                                        <TextBlock Text="Save to selected folder" FontSize="10.5" Foreground="#A0A0B0" VerticalAlignment="Center"/>
-                                                    </StackPanel>
+                                                <!-- Quick Toggle: Save direct to selected folder -->
+                                                <Border x:Name="DirectSaveCheckBox" Width="26" Height="26" Background="#141418" BorderBrush="#2C2C38" BorderThickness="1" CornerRadius="13" VerticalAlignment="Center" Margin="0,0,7,0" Cursor="Hand" ToolTip="Save directly to selected folder (no prompt)" MouseLeftButtonDown="ToggleDirectSaveOption_Click">
+                                                    <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                        <TextBlock x:Name="DirectSaveFolderIcon" Text="📁" FontSize="11" HorizontalAlignment="Center" VerticalAlignment="Center" Opacity="0.55"/>
+                                                        <Border x:Name="DirectSaveBadgeDot" Width="7" Height="7" Background="#00E5FF" CornerRadius="3.5" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-3,-3" Visibility="Collapsed"/>
+                                                    </Grid>
                                                 </Border>
+
+                                                <Button x:Name="BtnClearRecording" Click="BtnClearRecording_Click" Content="Clear" Style="{StaticResource PillButtonStyle}" Margin="0,0,8,0" ToolTip="Discard recording and reset"/>
                                             </StackPanel>
 
                                             <Ellipse x:Name="LiveRecIndicator" Width="7" Height="7" Fill="#555555" Margin="4,0,7,0" VerticalAlignment="Center"/>
