@@ -78,6 +78,9 @@ namespace WinReckApp
         private DispatcherTimer _previewTimer;
         private bool _isPreviewPlaying = false;
         private bool _isLiveScrubbing = false;
+        private Stopwatch _previewStopwatch = new Stopwatch();
+        private TimeSpan _previewTotalDuration = TimeSpan.Zero;
+        private double _previewSeekOffsetMs = 0;
 
         // Library Playback Engine & Seekable Waveform
         private WaveOut? _libWaveOut;
@@ -380,6 +383,9 @@ namespace WinReckApp
                 _previewWaveOut = new WaveOut { DeviceNumber = outDev };
                 _previewWaveOut.Init(_previewRawStream);
                 _previewWaveOut.PlaybackStopped += (s, ev) => Dispatcher.Invoke(StopLivePreview);
+                _previewTotalDuration = _previewRawStream.TotalTime;
+                _previewSeekOffsetMs = 0;
+                _previewStopwatch.Restart();
                 _previewWaveOut.Play();
                 _isPreviewPlaying = true;
                 _previewTimer.Start();
@@ -395,8 +401,13 @@ namespace WinReckApp
         {
             if (_previewRawStream == null || !_isPreviewPlaying) return;
 
-            double progress = (double)_previewRawStream.Position / Math.Max(1, _previewRawStream.Length);
-            var curr = _previewRawStream.CurrentTime;
+            double totalMs = _previewTotalDuration.TotalMilliseconds;
+            if (totalMs <= 0) return;
+
+            double elapsedMs = _previewSeekOffsetMs + _previewStopwatch.Elapsed.TotalMilliseconds;
+            double progress = Math.Clamp(elapsedMs / totalMs, 0.0, 1.0);
+
+            var curr = TimeSpan.FromMilliseconds(Math.Min(elapsedMs, totalMs));
             TxtRecTime.Text = $"{(int)curr.TotalMinutes}:{curr.Seconds:D2}";
 
             List<float> snapshot;
@@ -407,6 +418,7 @@ namespace WinReckApp
         private void StopLivePreview()
         {
             _previewTimer.Stop();
+            _previewStopwatch.Stop();
             _isPreviewPlaying = false;
             BtnPreviewLive.Content = "Play Preview";
 
@@ -580,7 +592,11 @@ namespace WinReckApp
                 targetByte = (targetByte / 4) * 4; // Align to 4-byte stereo 16-bit block
                 _previewRawStream.Position = Math.Clamp(targetByte, 0, _previewRawStream.Length);
 
-                var curr = _previewRawStream.CurrentTime;
+                // Sync stopwatch so the timer stays in lock-step after seek
+                _previewSeekOffsetMs = progress * _previewTotalDuration.TotalMilliseconds;
+                _previewStopwatch.Restart();
+
+                var curr = TimeSpan.FromMilliseconds(_previewSeekOffsetMs);
                 TxtRecTime.Text = $"{(int)curr.TotalMinutes}:{curr.Seconds:D2}";
             }
             else
