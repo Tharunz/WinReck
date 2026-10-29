@@ -15,6 +15,13 @@ using NAudio.Wave;
 
 namespace WinReckApp
 {
+    public class FolderItem
+    {
+        public string FullPath { get; set; } = "";
+        public string Name { get; set; } = "";
+        public int AudioCount { get; set; }
+    }
+
     public class RecordingItem
     {
         public string FilePath { get; set; } = "";
@@ -30,6 +37,10 @@ namespace WinReckApp
     {
         private bool _isExpanded = false;
         private string _recordingsFolder = "";
+        private string _rootRecordingsFolder = "";
+        private List<FolderItem> _subfolders = new List<FolderItem>();
+        private string? _selectedSubfolderPath = null;
+        private string _searchQuery = "";
         private List<RecordingItem> _recordings = new List<RecordingItem>();
         private RecordingItem? _selectedRecording = null;
         private string? _inlineEditingFilePath = null;
@@ -59,6 +70,7 @@ namespace WinReckApp
         private RawSourceWaveStream? _previewRawStream;
         private DispatcherTimer _previewTimer;
         private bool _isPreviewPlaying = false;
+        private bool _isLiveScrubbing = false;
 
         // Library Playback Engine & Seekable Waveform
         private WaveOut? _libWaveOut;
@@ -84,6 +96,7 @@ namespace WinReckApp
                 Environment.GetFolderPath(Environment.SpecialFolder.MyMusic),
                 "WinReck Recordings"
             );
+            _rootRecordingsFolder = _recordingsFolder;
             Directory.CreateDirectory(_recordingsFolder);
 
             // 50ms interval = 20 bars per second (smooth, rock-solid, fixed bars)
@@ -269,7 +282,7 @@ namespace WinReckApp
             StopLibPlayback();
             StopLivePreview();
 
-            if (_waveIn == null) InitPrewarmedMic();
+            InitPrewarmedMic();
 
             lock (_recordedBytes) _recordedBytes.Clear();
             lock (_audioLock)
@@ -411,14 +424,42 @@ namespace WinReckApp
             FinishRecordingSession(true);
         }
 
-        private void BtnRerecord_Click(object sender, RoutedEventArgs e)
+        private void BtnClearRecording_Click(object sender, RoutedEventArgs e)
         {
-            ShowAppModal("Discard and Re-record?", "This will discard the current recording and start a fresh one.", () =>
+            ShowAppModal("Clear Recording?", "This will discard the current recording and reset the recorder.", () =>
             {
-                StopLivePreview();
-                FinishRecordingSession(false);
-                StartRecording();
+                ResetLiveRecording();
             });
+        }
+
+        private void ResetLiveRecording()
+        {
+            StopLivePreview();
+            _recTimer.Stop();
+            _recStopwatch.Reset();
+            _isRecording = false;
+            _isPaused = false;
+
+            lock (_recordedBytes) _recordedBytes.Clear();
+            lock (_audioLock)
+            {
+                _pendingLiveSamples.Clear();
+                _liveRecordedBars.Clear();
+            }
+
+            // Flush driver buffer queue and pre-warm mic afresh
+            InitPrewarmedMic();
+
+            DrawEmptyWaveform(LiveWaveformCanvas);
+
+            PausedActionControls.Visibility = Visibility.Collapsed;
+            TxtRecStatus.Text = "Ready";
+            LiveRecIndicator.Fill = new SolidColorBrush(Color.FromRgb(80, 80, 80));
+
+            PauseIconBars.Visibility = Visibility.Collapsed;
+            RecIconDot.Visibility = Visibility.Visible;
+            RecIconDot.Fill = new SolidColorBrush(RedRecording);
+            TxtRecTime.Text = "0:00";
         }
 
         private void FinishRecordingSession(bool save)
@@ -454,23 +495,74 @@ namespace WinReckApp
                 }
             }
 
-            lock (_recordedBytes) _recordedBytes.Clear();
-            lock (_audioLock)
-            {
-                _pendingLiveSamples.Clear();
-                _liveRecordedBars.Clear();
-            }
-            DrawEmptyWaveform(LiveWaveformCanvas);
-
-            PausedActionControls.Visibility = Visibility.Collapsed;
-            TxtRecStatus.Text = "Ready";
-            LiveRecIndicator.Fill = new SolidColorBrush(Color.FromRgb(80, 80, 80));
-
-            PauseIconBars.Visibility = Visibility.Collapsed;
-            RecIconDot.Visibility = Visibility.Visible;
-            RecIconDot.Fill = new SolidColorBrush(RedRecording);
-            TxtRecTime.Text = "0:00";
+            ResetLiveRecording();
         }
+
+        #region Live Waveform Seeking (Pause & Preview)
+        private void LiveWaveformCanvas_Seek(object sender, MouseButtonEventArgs e)
+        {
+            if (!_isPaused && !_isPreviewPlaying) return;
+            _isLiveScrubbing = true;
+            LiveWaveformCanvas.CaptureMouse();
+            SeekLivePreview(e.GetPosition(LiveWaveformCanvas));
+        }
+
+        private void LiveWaveformCanvas_DragSeek(object sender, MouseEventArgs e)
+        {
+            if (_isLiveScrubbing)
+            {
+                SeekLivePreview(e.GetPosition(LiveWaveformCanvas));
+            }
+        }
+
+        private void LiveWaveformCanvas_SeekUp(object sender, MouseButtonEventArgs e)
+        {
+            if (_isLiveScrubbing)
+            {
+                _isLiveScrubbing = false;
+                LiveWaveformCanvas.ReleaseMouseCapture();
+            }
+        }
+
+        private void SeekLivePreview(Point pt)
+        {
+            byte[] snapshot;
+            lock (_recordedBytes) snapshot = _recordedBytes.ToArray();
+            if (snapshot.Length == 0) return;
+
+            double w = Math.Max(LiveWaveformCanvas.ActualWidth, 100);
+            double barW = 2.8, gap = 3.0;
+            double step = barW + gap;
+            int barCount = (int)(w / step);
+            if (barCount < 30) barCount = 30;
+            double startX = (w - barCount * step) / 2;
+            double totalSpan = barCount * step;
+
+            double progress = Math.Clamp((pt.X - startX) / totalSpan, 0.0, 1.0);
+
+            if (_previewRawStream != null && _previewWaveOut != null)
+            {
+                long targetByte = (long)(progress * _previewRawStream.Length);
+                targetByte = (targetByte / 4) * 4; // Align to 4-byte stereo 16-bit block
+                _previewRawStream.Position = Math.Clamp(targetByte, 0, _previewRawStream.Length);
+
+                var curr = _previewRawStream.CurrentTime;
+                TxtRecTime.Text = $"{(int)curr.TotalMinutes}:{curr.Seconds:D2}";
+            }
+            else
+            {
+                // In paused state without preview playing
+                double totalSecs = snapshot.Length / 192000.0;
+                double targetSecs = progress * totalSecs;
+                var ts = TimeSpan.FromSeconds(targetSecs);
+                TxtRecTime.Text = $"{(int)ts.TotalMinutes}:{ts.Seconds:D2}";
+            }
+
+            List<float> bars;
+            lock (_audioLock) bars = new List<float>(_liveRecordedBars);
+            DrawScaledSessionWaveform(LiveWaveformCanvas, bars, progress);
+        }
+        #endregion
 
         // Ticks every 50ms: appends exactly ONE fixed bar to history. Zero twitching!
         private void RecTimer_Tick(object? sender, EventArgs e)
@@ -717,7 +809,15 @@ namespace WinReckApp
         {
             if (_selectedRecording == null || PlayWaveformCanvas.ActualWidth <= 0) return;
 
-            double progress = Math.Clamp(pt.X / PlayWaveformCanvas.ActualWidth, 0.0, 1.0);
+            double w = PlayWaveformCanvas.ActualWidth > 80 ? PlayWaveformCanvas.ActualWidth : 560;
+            double barW = 2.8, gap = 3.0;
+            double step = barW + gap;
+            int barCount = (int)(w / step);
+            if (barCount < 30) barCount = 30;
+            double startX = (w - barCount * step) / 2;
+            double totalSpan = barCount * step;
+
+            double progress = Math.Clamp((pt.X - startX) / totalSpan, 0.0, 1.0);
             TimeSpan targetPos = TimeSpan.FromMilliseconds(progress * _selectedRecording.Duration.TotalMilliseconds);
 
             _currentSeekPosition = targetPos;
@@ -885,18 +985,54 @@ namespace WinReckApp
         }
         #endregion
 
-        #region Recordings Library — Scan & In-Place Rename
+        #region Recordings Library — Scan, Subfolders & Search
         private void LoadRecordingsFromDisk(bool autoSelectFirst = false)
         {
             _recordings.Clear();
 
-            if (Directory.Exists(_recordingsFolder))
+            if (!Directory.Exists(_recordingsFolder))
             {
-                var files = Directory.GetFiles(_recordingsFolder, "*.wav")
-                                     .OrderByDescending(f => File.GetCreationTime(f))
-                                     .ToList();
+                _recordingsFolder = _rootRecordingsFolder;
+                Directory.CreateDirectory(_recordingsFolder);
+            }
 
-                foreach (var f in files)
+            // Update Current Folder Path Display
+            UpdateFolderPathUI();
+
+            // Scan subfolders
+            _subfolders.Clear();
+            try
+            {
+                var dirs = Directory.GetDirectories(_recordingsFolder);
+                foreach (var d in dirs)
+                {
+                    int audioCount = 0;
+                    try
+                    {
+                        audioCount = Directory.GetFiles(d, "*.wav").Length + Directory.GetFiles(d, "*.mp3").Length;
+                    }
+                    catch { }
+
+                    _subfolders.Add(new FolderItem
+                    {
+                        FullPath   = d,
+                        Name       = System.IO.Path.GetFileName(d),
+                        AudioCount = audioCount
+                    });
+                }
+            }
+            catch { }
+
+            // Scan Audio Files
+            try
+            {
+                var wavFiles = Directory.GetFiles(_recordingsFolder, "*.wav");
+                var mp3Files = Directory.GetFiles(_recordingsFolder, "*.mp3");
+                var allFiles = wavFiles.Concat(mp3Files)
+                                       .OrderByDescending(f => File.GetCreationTime(f))
+                                       .ToList();
+
+                foreach (var f in allFiles)
                 {
                     try
                     {
@@ -926,8 +1062,9 @@ namespace WinReckApp
                     catch { }
                 }
             }
+            catch { }
 
-            TxtRecordingsCount.Text = $"{_recordings.Count} file{(_recordings.Count == 1 ? "" : "s")}";
+            RefreshSubfoldersUI();
 
             if (_recordings.Count > 0 && autoSelectFirst && _selectedRecording == null)
             {
@@ -953,6 +1090,205 @@ namespace WinReckApp
             }
 
             RefreshRecordingsUI();
+        }
+
+        private void UpdateFolderPathUI()
+        {
+            bool isRoot = string.Equals(_recordingsFolder.TrimEnd('\\', '/'), _rootRecordingsFolder.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase);
+            if (isRoot)
+            {
+                TxtCurrentFolderPath.Text = "WinReck Recordings";
+                BtnFolderUp.Visibility = Visibility.Collapsed;
+            }
+            else
+            {
+                var folderName = System.IO.Path.GetFileName(_recordingsFolder);
+                if (string.IsNullOrEmpty(folderName)) folderName = _recordingsFolder;
+                TxtCurrentFolderPath.Text = folderName;
+                BtnFolderUp.Visibility = Visibility.Visible;
+            }
+            TxtCurrentFolderPath.ToolTip = _recordingsFolder;
+        }
+
+        private void TxtCurrentFolderPath_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            try
+            {
+                if (Directory.Exists(_recordingsFolder))
+                {
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = _recordingsFolder,
+                        UseShellExecute = true
+                    });
+                }
+            }
+            catch { }
+        }
+
+        private void BtnFolderUp_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var parent = Directory.GetParent(_recordingsFolder);
+                if (parent != null && parent.Exists)
+                {
+                    NavigateToFolder(parent.FullName);
+                }
+                else
+                {
+                    NavigateToFolder(_rootRecordingsFolder);
+                }
+            }
+            catch
+            {
+                NavigateToFolder(_rootRecordingsFolder);
+            }
+        }
+
+        private void NavigateToFolder(string targetFolder)
+        {
+            if (!Directory.Exists(targetFolder)) return;
+            _recordingsFolder = targetFolder;
+            _selectedSubfolderPath = null;
+            LoadRecordingsFromDisk(autoSelectFirst: false);
+            AnimateRecordingsLoad();
+        }
+
+        private void AnimateRecordingsLoad()
+        {
+            try
+            {
+                var fadeIn = new DoubleAnimation(0.0, 1.0, TimeSpan.FromMilliseconds(220))
+                {
+                    EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+                };
+                var slideUp = new DoubleAnimation(12.0, 0.0, TimeSpan.FromMilliseconds(220))
+                {
+                    EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+                };
+                RecordingsScrollViewer.BeginAnimation(UIElement.OpacityProperty, fadeIn);
+                RecordingsTranslateTransform.BeginAnimation(TranslateTransform.YProperty, slideUp);
+            }
+            catch { }
+        }
+
+        private void RefreshSubfoldersUI()
+        {
+            SubfoldersStackPanel.Children.Clear();
+
+            var list = _subfolders;
+            if (!string.IsNullOrWhiteSpace(_searchQuery))
+            {
+                list = _subfolders.Where(f => f.Name.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase)).ToList();
+            }
+
+            if (list.Count == 0)
+            {
+                SubfoldersContainer.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            SubfoldersContainer.Visibility = Visibility.Visible;
+
+            foreach (var folder in list)
+            {
+                bool isSelected = string.Equals(_selectedSubfolderPath, folder.FullPath, StringComparison.OrdinalIgnoreCase);
+
+                Border folderBorder = new Border
+                {
+                    Margin          = new Thickness(0, 1.5, 0, 1.5),
+                    CornerRadius    = new CornerRadius(6),
+                    Padding         = new Thickness(8, 5, 8, 5),
+                    Background      = isSelected ? new SolidColorBrush(Color.FromArgb(40, 0, 229, 255)) : Brushes.Transparent,
+                    BorderBrush     = isSelected ? new SolidColorBrush(Color.FromArgb(90, 0, 229, 255)) : Brushes.Transparent,
+                    BorderThickness = new Thickness(1),
+                    Cursor          = Cursors.Hand
+                };
+
+                Grid row = new Grid();
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(20) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                TextBlock icon = new TextBlock
+                {
+                    Text = "📁",
+                    FontSize = 11,
+                    Foreground = new SolidColorBrush(Color.FromRgb(245, 166, 35)),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                Grid.SetColumn(icon, 0);
+
+                TextBlock name = new TextBlock
+                {
+                    Text = folder.Name,
+                    FontSize = 11.5,
+                    FontWeight = FontWeights.Medium,
+                    Foreground = isSelected ? new SolidColorBrush(CyanNeon) : new SolidColorBrush(Color.FromRgb(215, 215, 215)),
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 8, 0)
+                };
+                Grid.SetColumn(name, 1);
+
+                TextBlock count = new TextBlock
+                {
+                    Text = $"{folder.AudioCount} audio{(folder.AudioCount == 1 ? "" : "s")}",
+                    FontSize = 10,
+                    Foreground = new SolidColorBrush(Color.FromRgb(110, 110, 115)),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                Grid.SetColumn(count, 2);
+
+                row.Children.Add(icon);
+                row.Children.Add(name);
+                row.Children.Add(count);
+                folderBorder.Child = row;
+
+                folderBorder.MouseEnter += (s, e) =>
+                {
+                    if (!string.Equals(_selectedSubfolderPath, folder.FullPath, StringComparison.OrdinalIgnoreCase))
+                        folderBorder.Background = new SolidColorBrush(Color.FromRgb(22, 22, 26));
+                };
+                folderBorder.MouseLeave += (s, e) =>
+                {
+                    if (!string.Equals(_selectedSubfolderPath, folder.FullPath, StringComparison.OrdinalIgnoreCase))
+                        folderBorder.Background = Brushes.Transparent;
+                };
+
+                // Single-click: select/highlight; Double-click: load subfolder audios with animation!
+                folderBorder.MouseLeftButtonDown += (s, e) =>
+                {
+                    if (e.ClickCount == 1)
+                    {
+                        _selectedSubfolderPath = folder.FullPath;
+                        RefreshSubfoldersUI();
+                    }
+                    else if (e.ClickCount >= 2)
+                    {
+                        NavigateToFolder(folder.FullPath);
+                    }
+                };
+
+                SubfoldersStackPanel.Children.Add(folderBorder);
+            }
+        }
+
+        private void TxtSearchBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            _searchQuery = TxtSearchBox.Text.Trim();
+            TxtSearchPlaceholder.Visibility = string.IsNullOrEmpty(TxtSearchBox.Text) ? Visibility.Visible : Visibility.Collapsed;
+            BtnClearSearch.Visibility = string.IsNullOrEmpty(TxtSearchBox.Text) ? Visibility.Collapsed : Visibility.Visible;
+
+            RefreshSubfoldersUI();
+            RefreshRecordingsUI();
+        }
+
+        private void BtnClearSearch_Click(object sender, RoutedEventArgs e)
+        {
+            TxtSearchBox.Text = "";
+            TxtSearchBox.Focus();
         }
 
         // Generates a well-normalized, naturally dynamic waveform thumbnail.
@@ -1047,17 +1383,25 @@ namespace WinReckApp
         {
             RecordingsStackPanel.Children.Clear();
 
-            if (_recordings.Count == 0)
+            var displayList = _recordings;
+            if (!string.IsNullOrWhiteSpace(_searchQuery))
+            {
+                displayList = _recordings.Where(r => r.Title.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase)).ToList();
+            }
+
+            TxtRecordingsCount.Text = $"{displayList.Count} file{(displayList.Count == 1 ? "" : "s")}";
+
+            if (displayList.Count == 0)
             {
                 var emptyPanel = new StackPanel
                 {
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(0, 50, 0, 0)
+                    Margin = new Thickness(0, 40, 0, 0)
                 };
                 emptyPanel.Children.Add(new TextBlock
                 {
-                    Text = "No recordings yet",
+                    Text = string.IsNullOrWhiteSpace(_searchQuery) ? "No recordings in this folder" : "No matches found",
                     FontSize = 13,
                     FontWeight = FontWeights.Medium,
                     Foreground = new SolidColorBrush(Color.FromRgb(120, 120, 120)),
@@ -1066,7 +1410,7 @@ namespace WinReckApp
                 });
                 emptyPanel.Children.Add(new TextBlock
                 {
-                    Text = "Click ● to record audio",
+                    Text = string.IsNullOrWhiteSpace(_searchQuery) ? "Click ● to record audio" : "Try a different search query",
                     FontSize = 11,
                     Foreground = new SolidColorBrush(Color.FromRgb(80, 80, 80)),
                     HorizontalAlignment = HorizontalAlignment.Center
@@ -1075,7 +1419,7 @@ namespace WinReckApp
                 return;
             }
 
-            foreach (var item in _recordings)
+            foreach (var item in displayList)
             {
                 bool isSelected = (_selectedRecording != null && _selectedRecording.FilePath == item.FilePath);
                 bool isEditing  = (_inlineEditingFilePath == item.FilePath);
@@ -1463,11 +1807,13 @@ namespace WinReckApp
                 return;
             }
 
-            double cursorX = (previewProgress >= 0) ? Math.Clamp(previewProgress * w, 0, w) : -1;
+            double startX = (w - barCount * step) / 2;
+            double totalSpan = barCount * step;
+            double cursorX = (previewProgress >= 0) ? Math.Clamp(startX + previewProgress * totalSpan, startX, startX + totalSpan) : -1;
 
             for (int i = 0; i < barCount; i++)
             {
-                double x = i * step + barW / 2 + (w - barCount * step) / 2;
+                double x = startX + i * step + barW / 2;
                 float amp = 0f;
 
                 if (totalBars <= barCount)
@@ -1496,7 +1842,7 @@ namespace WinReckApp
 
                 if (previewProgress >= 0)
                 {
-                    bool isPreviewPlayed = (x <= cursorX + 1.0);
+                    bool isPreviewPlayed = (x <= cursorX + 0.5);
                     barColor = isPreviewPlayed ? CyanNeon : SlateUnplayed;
                     alpha = isPreviewPlayed ? 0.95 : 0.40;
                 }
@@ -1549,7 +1895,15 @@ namespace WinReckApp
             double h = canvas.ActualHeight > 30 ? canvas.ActualHeight : 140;
             double centerY = h / 2.0;
 
-            double cursorX = Math.Clamp(progress * w, 0, w);
+            double barW = 2.8, gap = 3.0;
+            double step = barW + gap;
+            int barCount = (int)(w / step);
+            if (barCount < 30) barCount = 30;
+            double maxHalfH = h * 0.42;
+
+            double startX = (w - barCount * step) / 2;
+            double totalSpan = barCount * step;
+            double cursorX = Math.Clamp(startX + progress * totalSpan, startX, startX + totalSpan);
 
             // Subtle baseline connecting gaps during silence (drawn behind bars)
             if (cursorX > 0)
@@ -1573,17 +1927,11 @@ namespace WinReckApp
                 });
             }
 
-            double barW = 2.8, gap = 3.0;
-            double step = barW + gap;
-            int barCount = (int)(w / step);
-            if (barCount < 30) barCount = 30;
-            double maxHalfH = h * 0.42;
-
             for (int i = 0; i < barCount; i++)
             {
-                double x = i * step + barW / 2 + (w - barCount * step) / 2;
+                double x = startX + i * step + barW / 2;
                 double barProg = (double)i / barCount;
-                bool isPast = (x <= cursorX + 1.0);
+                bool isPast = (x <= cursorX + 0.5);
 
                 float amp = 0f;
                 if (samples.Length > 0)
@@ -1758,13 +2106,16 @@ namespace WinReckApp
         {
             var dialog = new OpenFolderDialog
             {
-                Title          = "Select Recordings Folder",
+                Title            = "Select Recordings Folder",
                 InitialDirectory = _recordingsFolder
             };
             if (dialog.ShowDialog() == true)
             {
                 _recordingsFolder = dialog.FolderName;
+                _rootRecordingsFolder = dialog.FolderName;
+                _selectedSubfolderPath = null;
                 LoadRecordingsFromDisk();
+                AnimateRecordingsLoad();
             }
         }
         #endregion

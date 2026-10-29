@@ -270,34 +270,104 @@
                             <ColumnDefinition Width="1.4*"/>
                         </Grid.ColumnDefinitions>
 
-                        <!-- LEFT: Full-height Recordings Library -->
-                        <Border Grid.Column="0" BorderBrush="#191919" BorderThickness="0,0,1,0" Padding="20,18,16,18">
+                        <!-- LEFT: Full-height Recordings Library & File Explorer -->
+                        <Border Grid.Column="0" BorderBrush="#191919" BorderThickness="0,0,1,0" Padding="18,16,14,16">
                             <Grid>
                                 <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="Auto"/> <!-- Header: Title & Action buttons -->
+                                    <RowDefinition Height="Auto"/> <!-- Folder Path Bar -->
+                                    <RowDefinition Height="Auto"/> <!-- Search Box -->
+                                    <RowDefinition Height="Auto"/> <!-- Subfolders Container (Top-Left Box, small portion) -->
+                                    <RowDefinition Height="*"/>    <!-- Audios Container (Bottom-Left Box, majority of space) -->
                                 </Grid.RowDefinitions>
 
-                                <Grid Grid.Row="0" Margin="0,0,0,14">
+                                <!-- ROW 0: Title & Batch Actions -->
+                                <Grid Grid.Row="0" Margin="0,0,0,10">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
 
                                     <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                                        <TextBlock Text="Recordings" FontSize="19" FontWeight="SemiBold" Foreground="#FFFFFF" Margin="0,0,12,0" VerticalAlignment="Center"/>
-                                        <Button Content="Load Folder" Style="{StaticResource PillButtonStyle}" Click="BtnLoadFolder_Click" Margin="0,0,6,0"/>
-                                        <Button x:Name="BtnToggleSelectMode" Content="Select" Style="{StaticResource PillButtonStyle}" Click="BtnToggleSelectMode_Click" Margin="0,0,6,0"/>
-                                        <Button x:Name="BtnSelectAll" Content="All" Style="{StaticResource PillButtonStyle}" Click="BtnSelectAll_Click" Visibility="Collapsed" Margin="0,0,6,0"/>
+                                        <TextBlock Text="Recordings" FontSize="18" FontWeight="SemiBold" Foreground="#FFFFFF" Margin="0,0,10,0" VerticalAlignment="Center"/>
+                                        <Button Content="Load Folder" Style="{StaticResource PillButtonStyle}" Click="BtnLoadFolder_Click" Margin="0,0,5,0"/>
+                                        <Button x:Name="BtnToggleSelectMode" Content="Select" Style="{StaticResource PillButtonStyle}" Click="BtnToggleSelectMode_Click" Margin="0,0,5,0"/>
+                                        <Button x:Name="BtnSelectAll" Content="All" Style="{StaticResource PillButtonStyle}" Click="BtnSelectAll_Click" Visibility="Collapsed" Margin="0,0,5,0"/>
                                         <Button x:Name="BtnDeleteBatch" Content="Delete (0)" Style="{StaticResource PillButtonStyle}" Foreground="#FF4D4D" BorderBrush="#88E63946" Click="BtnDeleteBatch_Click" Visibility="Collapsed"/>
                                     </StackPanel>
 
                                     <TextBlock Grid.Column="1" x:Name="TxtRecordingsCount" Text="0 files" FontSize="11" Foreground="#555555" VerticalAlignment="Center"/>
                                 </Grid>
 
-                                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                                    <StackPanel x:Name="RecordingsStackPanel"/>
-                                </ScrollViewer>
+                                <!-- ROW 1: Folder Path Bar (Explorer Style) -->
+                                <Border Grid.Row="1" Background="#0C0C0E" BorderBrush="#222226" BorderThickness="1" CornerRadius="7" Padding="8,5" Margin="0,0,0,7">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <!-- Up/Back Button (visible when inside a subfolder) -->
+                                        <Button x:Name="BtnFolderUp" Grid.Column="0" Click="BtnFolderUp_Click" Background="Transparent" BorderThickness="0" Cursor="Hand" ToolTip="Go to Parent Folder" Margin="0,0,6,0" Visibility="Collapsed" VerticalAlignment="Center">
+                                            <Border Background="#1C1C22" CornerRadius="4" Padding="5,2" BorderBrush="#2F2F38" BorderThickness="1">
+                                                <TextBlock Text="▲" FontSize="9" Foreground="#00E5FF" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                            </Border>
+                                        </Button>
+
+                                        <!-- Folder Icon & Path Display -->
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <TextBlock Text="📁" FontSize="11" Foreground="#F5A623" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                            <TextBlock x:Name="TxtCurrentFolderPath" Text="WinReck Recordings" FontSize="11" Foreground="#CCCCCC" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" ToolTip="Current Folder Path" Cursor="Hand" MouseLeftButtonDown="TxtCurrentFolderPath_MouseLeftButtonDown"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+
+                                <!-- ROW 2: Fast Search Box -->
+                                <Border Grid.Row="2" Background="#0C0C0E" BorderBrush="#222226" BorderThickness="1" CornerRadius="7" Padding="8,4" Margin="0,0,0,8">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <TextBlock Grid.Column="0" Text="🔍" FontSize="10" Foreground="#666666" VerticalAlignment="Center" Margin="0,0,6,0"/>
+
+                                        <Grid Grid.Column="1">
+                                            <TextBlock x:Name="TxtSearchPlaceholder" Text="Search audio or subfolders..." FontSize="11" Foreground="#4E4E54" VerticalAlignment="Center" IsHitTestVisible="False"/>
+                                            <TextBox x:Name="TxtSearchBox" Background="Transparent" BorderThickness="0" Foreground="#FFFFFF" FontSize="11" VerticalAlignment="Center" CaretBrush="#00E5FF" TextChanged="TxtSearchBox_TextChanged"/>
+                                        </Grid>
+
+                                        <Button x:Name="BtnClearSearch" Grid.Column="2" Click="BtnClearSearch_Click" Background="Transparent" BorderThickness="0" Foreground="#888888" Cursor="Hand" Visibility="Collapsed" Width="18" Height="18" Padding="0">
+                                            <TextBlock Text="✕" FontSize="10" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Button>
+                                    </Grid>
+                                </Border>
+
+                                <!-- ROW 3: Subfolders Container (Top-Left Box: small portion vertically, visible only if subfolders exist) -->
+                                <Border x:Name="SubfoldersContainer" Grid.Row="3" Background="#0A0A0D" BorderBrush="#1C1C22" BorderThickness="1" CornerRadius="7" Padding="8,6" Margin="0,0,0,8" Visibility="Collapsed" MaxHeight="115">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="*"/>
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Text="SUBFOLDERS" FontSize="9" FontWeight="SemiBold" Foreground="#666666" Margin="2,0,0,4"/>
+                                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                            <StackPanel x:Name="SubfoldersStackPanel"/>
+                                        </ScrollViewer>
+                                    </Grid>
+                                </Border>
+
+                                <!-- ROW 4: Audio Recordings Container (Bottom-Left Box: majority of space) -->
+                                <Grid Grid.Row="4">
+                                    <ScrollViewer x:Name="RecordingsScrollViewer" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                        <StackPanel x:Name="RecordingsStackPanel">
+                                            <StackPanel.RenderTransform>
+                                                <TranslateTransform x:Name="RecordingsTranslateTransform"/>
+                                            </StackPanel.RenderTransform>
+                                        </StackPanel>
+                                    </ScrollViewer>
+                                </Grid>
                             </Grid>
                         </Border>
 
@@ -311,8 +381,12 @@
                             <!-- TOP-RIGHT: Live Recorder -->
                             <Border Grid.Row="0" BorderBrush="#191919" BorderThickness="0,0,0,1" Padding="22">
                                 <Grid>
-                                    <!-- Live Waveform Canvas (custom mirrored bars scaled across graph) -->
-                                    <Canvas x:Name="LiveWaveformCanvas" Background="Transparent" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Margin="0,0,0,50" ClipToBounds="True" SizeChanged="LiveWaveformCanvas_SizeChanged"/>
+                                    <!-- Live Waveform Canvas (custom mirrored bars scaled across graph, seekable when paused/previewing) -->
+                                    <Canvas x:Name="LiveWaveformCanvas" Background="Transparent" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Margin="0,0,0,50" ClipToBounds="True" Cursor="Hand"
+                                            SizeChanged="LiveWaveformCanvas_SizeChanged"
+                                            MouseLeftButtonDown="LiveWaveformCanvas_Seek"
+                                            MouseMove="LiveWaveformCanvas_DragSeek"
+                                            MouseLeftButtonUp="LiveWaveformCanvas_SeekUp"/>
 
                                     <Grid VerticalAlignment="Bottom">
                                         <Grid.ColumnDefinitions>
@@ -334,7 +408,7 @@
                                             <StackPanel x:Name="PausedActionControls" Orientation="Horizontal" Visibility="Collapsed">
                                                 <Button x:Name="BtnPreviewLive" Click="BtnPreviewLive_Click" Content="Play Preview" Style="{StaticResource PillButtonStyle}" Margin="0,0,7,0"/>
                                                 <Button x:Name="BtnSaveRecording" Click="BtnSaveRecording_Click" Content="Save" Style="{StaticResource PillButtonStyle}" Margin="0,0,7,0"/>
-                                                <Button x:Name="BtnRerecord" Click="BtnRerecord_Click" Content="Re-record" Style="{StaticResource PillButtonStyle}" Margin="0,0,7,0"/>
+                                                <Button x:Name="BtnClearRecording" Click="BtnClearRecording_Click" Content="Clear" Style="{StaticResource PillButtonStyle}" Margin="0,0,7,0" ToolTip="Discard recording and reset"/>
                                             </StackPanel>
 
                                             <Ellipse x:Name="LiveRecIndicator" Width="7" Height="7" Fill="#555555" Margin="4,0,7,0" VerticalAlignment="Center"/>
