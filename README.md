@@ -7,17 +7,6 @@
 
 A native WPF audio recorder for Windows — clean dark UI, live waveform, seekable playback, and a no-nonsense recordings library.
 
----
-
-## Features
-
-- 🎙️ Record from any input device with live waveform visualization
-- 🔊 Playback with seekable waveform and playhead
-- 📁 Recordings library with inline rename, delete, and batch selection
-- 💾 Saves as 48kHz 16-bit stereo WAV to `~/Music/WinReck Recordings/`
-- 🎨 Dark theme, zero OS dialogs
-
----
 
 ## Installation
 
