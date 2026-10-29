@@ -78,9 +78,11 @@ namespace WinReckApp
         private DispatcherTimer _previewTimer;
         private bool _isPreviewPlaying = false;
         private bool _isLiveScrubbing = false;
-        private Stopwatch _previewStopwatch = new Stopwatch();
-        private TimeSpan _previewTotalDuration = TimeSpan.Zero;
-        private double _previewSeekOffsetMs = 0;
+        // Seek tracking: WaveOut.GetPosition() is cumulative since Init(), so we record
+        // the hardware byte-count at each seek point and the audio-ms we seeked to.
+        private long   _previewGetPosAtSeek  = 0;   // WaveOut.GetPosition() value at last seek/start
+        private double _previewSeekOffsetMs  = 0;   // stream position in ms at last seek/start
+        private double _previewTotalMs       = 0;   // total duration in ms
 
         // Library Playback Engine & Seekable Waveform
         private WaveOut? _libWaveOut;
@@ -383,10 +385,11 @@ namespace WinReckApp
                 _previewWaveOut = new WaveOut { DeviceNumber = outDev };
                 _previewWaveOut.Init(_previewRawStream);
                 _previewWaveOut.PlaybackStopped += (s, ev) => Dispatcher.Invoke(StopLivePreview);
-                _previewTotalDuration = _previewRawStream.TotalTime;
+                _previewTotalMs      = _previewRawStream.TotalTime.TotalMilliseconds;
                 _previewSeekOffsetMs = 0;
-                _previewStopwatch.Restart();
                 _previewWaveOut.Play();
+                // Snapshot GetPosition() AFTER Play() so the baseline matches the hardware clock start
+                _previewGetPosAtSeek = _previewWaveOut.GetPosition();
                 _isPreviewPlaying = true;
                 _previewTimer.Start();
                 BtnPreviewLive.Content = "Stop Preview";
@@ -399,15 +402,18 @@ namespace WinReckApp
 
         private void PreviewTimer_Tick(object? sender, EventArgs e)
         {
-            if (_previewRawStream == null || !_isPreviewPlaying) return;
+            if (_previewRawStream == null || _previewWaveOut == null || !_isPreviewPlaying) return;
 
-            double totalMs = _previewTotalDuration.TotalMilliseconds;
-            if (totalMs <= 0) return;
+            if (_previewTotalMs <= 0) return;
 
-            double elapsedMs = _previewSeekOffsetMs + _previewStopwatch.Elapsed.TotalMilliseconds;
-            double progress = Math.Clamp(elapsedMs / totalMs, 0.0, 1.0);
+            // WaveOut.GetPosition() returns cumulative bytes clocked out to hardware since Init().
+            // This is the ONLY value that matches actual speaker output — no buffer lag.
+            long hwBytes = _previewWaveOut.GetPosition() - _previewGetPosAtSeek;
+            // 48000 Hz × 2 ch × 2 bytes = 192000 bytes/sec → 192 bytes/ms
+            double elapsedMs = _previewSeekOffsetMs + (hwBytes / 192.0);
+            double progress  = Math.Clamp(elapsedMs / _previewTotalMs, 0.0, 1.0);
 
-            var curr = TimeSpan.FromMilliseconds(Math.Min(elapsedMs, totalMs));
+            var curr = TimeSpan.FromMilliseconds(Math.Min(elapsedMs, _previewTotalMs));
             TxtRecTime.Text = $"{(int)curr.TotalMinutes}:{curr.Seconds:D2}";
 
             List<float> snapshot;
@@ -418,7 +424,6 @@ namespace WinReckApp
         private void StopLivePreview()
         {
             _previewTimer.Stop();
-            _previewStopwatch.Stop();
             _isPreviewPlaying = false;
             BtnPreviewLive.Content = "Play Preview";
 
@@ -592,9 +597,9 @@ namespace WinReckApp
                 targetByte = (targetByte / 4) * 4; // Align to 4-byte stereo 16-bit block
                 _previewRawStream.Position = Math.Clamp(targetByte, 0, _previewRawStream.Length);
 
-                // Sync stopwatch so the timer stays in lock-step after seek
-                _previewSeekOffsetMs = progress * _previewTotalDuration.TotalMilliseconds;
-                _previewStopwatch.Restart();
+                // Reset hardware baseline so GetPosition() delta restarts from this seek point
+                _previewSeekOffsetMs  = progress * _previewTotalMs;
+                _previewGetPosAtSeek  = _previewWaveOut.GetPosition();
 
                 var curr = TimeSpan.FromMilliseconds(_previewSeekOffsetMs);
                 TxtRecTime.Text = $"{(int)curr.TotalMinutes}:{curr.Seconds:D2}";
