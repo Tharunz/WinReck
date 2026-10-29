@@ -1,6 +1,6 @@
 # WinReck
 
-> The Windows audio recorder that doesn't suck.
+> The Windows audio recorder you have been searching for.
 
 ![WinReck](assets/screenshot.png)
 
@@ -11,7 +11,7 @@ A native WPF audio recorder for Windows — clean dark UI, live waveform, seekab
 ## Features
 
 - 🎙️ Record from any input device with live waveform visualization
-- 🔊 Playback with seekable, scrollable waveform and playhead
+- 🔊 Playback with seekable waveform and playhead
 - 📁 Recordings library with inline rename, delete, and batch selection
 - 💾 Saves as 48kHz 16-bit stereo WAV to `~/Music/WinReck Recordings/`
 - 🎨 Dark theme, zero OS dialogs
