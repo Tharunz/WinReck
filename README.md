@@ -29,7 +29,7 @@ Download the latest self-contained `.exe` from [Releases](../../releases) — no
 **Requirements:** Windows 10/11 · [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0)
 
 ```bash
-git clone https://github.com/USERNAME/WinReck.git
+git clone https://github.com/Tharunz/WinReck.git
 cd WinReck/WinReckApp
 dotnet build
 dotnet run
