@@ -38,6 +38,7 @@ namespace WinReckApp
         private bool _isExpanded = false;
         private string _recordingsFolder = "";
         private string _rootRecordingsFolder = "";
+        private string _explorerFolder = "";
         private List<FolderItem> _subfolders = new List<FolderItem>();
         private string? _selectedSubfolderPath = null;
         private string _folderSearchQuery = "";
@@ -98,6 +99,7 @@ namespace WinReckApp
                 "WinReck Recordings"
             );
             _rootRecordingsFolder = _recordingsFolder;
+            _explorerFolder = _recordingsFolder;
             Directory.CreateDirectory(_recordingsFolder);
 
             // 50ms interval = 20 bars per second (smooth, rock-solid, fixed bars)
@@ -963,7 +965,8 @@ namespace WinReckApp
             foreach (char c in System.IO.Path.GetInvalidFileNameChars())
                 newName = newName.Replace(c.ToString(), "");
 
-            string newPath = System.IO.Path.Combine(_recordingsFolder, newName + ".wav");
+            string dir = System.IO.Path.GetDirectoryName(item.FilePath) ?? _recordingsFolder;
+            string newPath = System.IO.Path.Combine(dir, newName + ".wav");
             try
             {
                 StopLibPlayback();
@@ -989,22 +992,21 @@ namespace WinReckApp
         #region Folders & Recordings Library (Explorer Grid Layout)
         private void LoadRecordingsFromDisk(bool autoSelectFirst = false)
         {
-            _recordings.Clear();
-
+            if (!Directory.Exists(_explorerFolder))
+            {
+                _explorerFolder = _rootRecordingsFolder;
+                Directory.CreateDirectory(_explorerFolder);
+            }
             if (!Directory.Exists(_recordingsFolder))
             {
-                _recordingsFolder = _rootRecordingsFolder;
-                Directory.CreateDirectory(_recordingsFolder);
+                _recordingsFolder = _explorerFolder;
             }
 
-            // Update Header Subtitle ("in <FolderName>")
-            UpdateRecordingsSubtitle();
-
-            // Scan subfolders
+            // Scan subfolders of _explorerFolder
             _subfolders.Clear();
             try
             {
-                var dirs = Directory.GetDirectories(_recordingsFolder);
+                var dirs = Directory.GetDirectories(_explorerFolder);
                 foreach (var d in dirs)
                 {
                     int audioCount = 0;
@@ -1023,6 +1025,21 @@ namespace WinReckApp
                 }
             }
             catch { }
+
+            RefreshFoldersUI();
+
+            LoadRecordingsFromFolder(_recordingsFolder, autoSelectFirst);
+        }
+
+        private void LoadRecordingsFromFolder(string folderPath, bool autoSelectFirst = false)
+        {
+            if (!Directory.Exists(folderPath)) return;
+            _recordingsFolder = folderPath;
+
+            // Update Header Subtitle ("in <FolderName>")
+            UpdateRecordingsSubtitle();
+
+            _recordings.Clear();
 
             // Scan Audio Files
             try
@@ -1064,8 +1081,6 @@ namespace WinReckApp
                 }
             }
             catch { }
-
-            RefreshFoldersUI();
 
             if (_recordings.Count > 0 && autoSelectFirst && _selectedRecording == null)
             {
@@ -1112,8 +1127,9 @@ namespace WinReckApp
         private void NavigateToFolder(string targetFolder)
         {
             if (!Directory.Exists(targetFolder)) return;
+            _explorerFolder = targetFolder;
             _recordingsFolder = targetFolder;
-            _selectedSubfolderPath = targetFolder;
+            _selectedSubfolderPath = null;
             LoadRecordingsFromDisk(autoSelectFirst: false);
             AnimateRecordingsLoad();
         }
@@ -1140,23 +1156,30 @@ namespace WinReckApp
         {
             FoldersWrapPanel.Children.Clear();
 
-            bool isRoot = string.Equals(_recordingsFolder.TrimEnd('\\', '/'), _rootRecordingsFolder.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase);
+            bool isRoot = string.Equals(_explorerFolder.TrimEnd('\\', '/'), _rootRecordingsFolder.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase);
 
-            // If inside a subfolder, add a "Back" navigation card first
+            // If inside a subfolder in the explorer view, add a "Back" navigation card first
             if (!isRoot)
             {
                 Border backCard = CreateFolderCard("⮤ Back", isSelected: false, isSpecialBack: true, clickAction: () =>
                 {
                     try
                     {
-                        var parent = Directory.GetParent(_recordingsFolder);
-                        NavigateToFolder(parent?.FullName ?? _rootRecordingsFolder);
+                        var parent = Directory.GetParent(_explorerFolder);
+                        string target = parent?.FullName ?? _rootRecordingsFolder;
+                        if (!string.IsNullOrEmpty(_rootRecordingsFolder) && 
+                            _explorerFolder.TrimEnd('\\', '/').Equals(_rootRecordingsFolder.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase))
+                        {
+                            target = _rootRecordingsFolder;
+                        }
+                        NavigateToFolder(target);
                     }
                     catch
                     {
                         NavigateToFolder(_rootRecordingsFolder);
                     }
                 });
+                backCard.Tag = "BACK";
                 FoldersWrapPanel.Children.Add(backCard);
             }
 
@@ -1168,7 +1191,13 @@ namespace WinReckApp
 
             if (list.Count == 0 && isRoot)
             {
-                Border mainCard = CreateFolderCard("Main", isSelected: true, clickAction: () => { });
+                Border mainCard = CreateFolderCard("Main", isSelected: true, clickAction: () =>
+                {
+                    UpdateCardSelection(_rootRecordingsFolder);
+                    LoadRecordingsFromFolder(_rootRecordingsFolder);
+                    AnimateRecordingsLoad();
+                });
+                mainCard.Tag = new FolderItem { FullPath = _rootRecordingsFolder, Name = "Main" };
                 FoldersWrapPanel.Children.Add(mainCard);
                 UpdateFolderScrollIndicator();
                 return;
@@ -1178,15 +1207,42 @@ namespace WinReckApp
             {
                 bool isSelected = string.Equals(_selectedSubfolderPath, folder.FullPath, StringComparison.OrdinalIgnoreCase);
 
+                bool hasSubfolders = false;
+                try
+                {
+                    hasSubfolders = Directory.Exists(folder.FullPath) && Directory.GetDirectories(folder.FullPath).Length > 0;
+                }
+                catch { }
+
                 Border folderCard = CreateFolderCard(folder.Name, isSelected: isSelected, clickAction: () =>
                 {
-                    _selectedSubfolderPath = folder.FullPath;
-                    RefreshFoldersUI();
+                    // Single-click selects the folder
+                    UpdateCardSelection(folder.FullPath);
+
+                    // If it has NO subfolders, also load all audios in that folder down below right away
+                    if (!hasSubfolders)
+                    {
+                        LoadRecordingsFromFolder(folder.FullPath);
+                        AnimateRecordingsLoad();
+                    }
                 }, doubleClickAction: () =>
                 {
-                    NavigateToFolder(folder.FullPath);
+                    if (hasSubfolders)
+                    {
+                        // Folder has subfolders -> open next explorer view
+                        NavigateToFolder(folder.FullPath);
+                    }
+                    else
+                    {
+                        // Folder does NOT have subfolders:
+                        // "the next view shld not open, instead it should just load all the audios in that folder down below, and show some visual indication that folder was selected"
+                        UpdateCardSelection(folder.FullPath);
+                        LoadRecordingsFromFolder(folder.FullPath);
+                        AnimateRecordingsLoad();
+                    }
                 });
 
+                folderCard.Tag = folder;
                 FoldersWrapPanel.Children.Add(folderCard);
             }
 
@@ -1203,9 +1259,8 @@ namespace WinReckApp
                 Padding         = new Thickness(4, 6, 4, 6),
                 Margin          = new Thickness(0, 0, 8, 8),
                 Cursor          = Cursors.Hand,
-                Background      = isSelected ? new SolidColorBrush(Color.FromRgb(32, 36, 44)) : new SolidColorBrush(Color.FromRgb(16, 16, 20)),
-                BorderBrush     = isSelected ? new SolidColorBrush(Color.FromRgb(60, 72, 88)) : new SolidColorBrush(Color.FromRgb(26, 26, 32)),
-                BorderThickness = new Thickness(1)
+                RenderTransformOrigin = new Point(0.5, 0.5),
+                RenderTransform = new ScaleTransform(1.0, 1.0)
             };
 
             StackPanel sp = new StackPanel
@@ -1237,7 +1292,6 @@ namespace WinReckApp
             }
             else
             {
-                // Graphical Folder Icon matching user's mockup
                 Grid folderGraphic = new Grid
                 {
                     Width = 36, Height = 22,
@@ -1245,16 +1299,16 @@ namespace WinReckApp
                 };
                 Border tab = new Border
                 {
+                    Tag = "FolderTab",
                     Width = 14, Height = 5,
-                    Background = new SolidColorBrush(Color.FromRgb(84, 160, 224)),
                     CornerRadius = new CornerRadius(2, 2, 0, 0),
                     HorizontalAlignment = HorizontalAlignment.Left,
                     VerticalAlignment = VerticalAlignment.Top
                 };
                 Border body = new Border
                 {
+                    Tag = "FolderBody",
                     Width = 36, Height = 19,
-                    Background = new SolidColorBrush(Color.FromRgb(96, 169, 232)),
                     CornerRadius = new CornerRadius(3),
                     VerticalAlignment = VerticalAlignment.Bottom
                 };
@@ -1265,10 +1319,9 @@ namespace WinReckApp
 
             TextBlock nameBlock = new TextBlock
             {
+                Tag               = "FolderNameBlock",
                 Text              = name,
                 FontSize          = 10,
-                Foreground        = isSelected ? new SolidColorBrush(CyanNeon) : new SolidColorBrush(Color.FromRgb(215, 215, 215)),
-                FontWeight        = isSelected ? FontWeights.SemiBold : FontWeights.Normal,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 TextAlignment     = TextAlignment.Center,
                 TextTrimming      = TextTrimming.CharacterEllipsis,
@@ -1279,15 +1332,33 @@ namespace WinReckApp
 
             card.Child = sp;
 
+            if (isSpecialBack)
+            {
+                ApplyBackCardStyle(card);
+            }
+            else
+            {
+                ApplyFolderCardStyle(card, isSelected);
+            }
+
             card.MouseEnter += (s, e) =>
             {
-                if (!isSelected)
-                    card.Background = new SolidColorBrush(Color.FromRgb(24, 26, 32));
+                bool selected = (card.Tag is FolderItem fi) && string.Equals(_selectedSubfolderPath, fi.FullPath, StringComparison.OrdinalIgnoreCase);
+                if (!selected && !isSpecialBack)
+                {
+                    card.Background = new SolidColorBrush(Color.FromRgb(25, 27, 34));
+                    card.BorderBrush = new SolidColorBrush(Color.FromRgb(45, 48, 60));
+                }
             };
+
             card.MouseLeave += (s, e) =>
             {
-                if (!isSelected)
+                bool selected = (card.Tag is FolderItem fi) && string.Equals(_selectedSubfolderPath, fi.FullPath, StringComparison.OrdinalIgnoreCase);
+                if (!selected && !isSpecialBack)
+                {
                     card.Background = new SolidColorBrush(Color.FromRgb(16, 16, 20));
+                    card.BorderBrush = new SolidColorBrush(Color.FromRgb(26, 26, 32));
+                }
             };
 
             card.MouseLeftButtonDown += (s, e) =>
@@ -1304,6 +1375,115 @@ namespace WinReckApp
             };
 
             return card;
+        }
+
+        private void ApplyFolderCardStyle(Border card, bool isSelected)
+        {
+            if (isSelected)
+            {
+                // Clear, glowing visual indication for the selected folder
+                card.Background      = new SolidColorBrush(Color.FromArgb(50, 0, 229, 255));
+                card.BorderBrush     = new SolidColorBrush(CyanNeon);
+                card.BorderThickness = new Thickness(1.5);
+            }
+            else
+            {
+                card.Background      = new SolidColorBrush(Color.FromRgb(16, 16, 20));
+                card.BorderBrush     = new SolidColorBrush(Color.FromRgb(26, 26, 32));
+                card.BorderThickness = new Thickness(1);
+            }
+
+            if (card.Child is StackPanel sp)
+            {
+                foreach (UIElement child in sp.Children)
+                {
+                    if (child is Grid folderGraphic)
+                    {
+                        foreach (UIElement part in folderGraphic.Children)
+                        {
+                            if (part is Border tab && Equals(tab.Tag, "FolderTab"))
+                            {
+                                tab.Background = isSelected 
+                                    ? new SolidColorBrush(CyanNeon) 
+                                    : new SolidColorBrush(Color.FromRgb(84, 160, 224));
+                            }
+                            else if (part is Border body && Equals(body.Tag, "FolderBody"))
+                            {
+                                body.Background = isSelected 
+                                    ? new SolidColorBrush(Color.FromRgb(0, 195, 230)) 
+                                    : new SolidColorBrush(Color.FromRgb(96, 169, 232));
+                            }
+                        }
+                    }
+                    else if (child is TextBlock nameBlock && Equals(nameBlock.Tag, "FolderNameBlock"))
+                    {
+                        nameBlock.Foreground = isSelected 
+                            ? new SolidColorBrush(CyanNeon) 
+                            : new SolidColorBrush(Color.FromRgb(215, 215, 215));
+                        nameBlock.FontWeight = isSelected ? FontWeights.Bold : FontWeights.Normal;
+                    }
+                }
+            }
+        }
+
+        private void ApplyBackCardStyle(Border card)
+        {
+            card.Background      = new SolidColorBrush(Color.FromRgb(16, 16, 20));
+            card.BorderBrush     = new SolidColorBrush(Color.FromRgb(26, 26, 32));
+            card.BorderThickness = new Thickness(1);
+
+            if (card.Child is StackPanel sp)
+            {
+                foreach (UIElement child in sp.Children)
+                {
+                    if (child is TextBlock nameBlock && Equals(nameBlock.Tag, "FolderNameBlock"))
+                    {
+                        nameBlock.Foreground = new SolidColorBrush(Color.FromRgb(180, 180, 190));
+                        nameBlock.FontWeight = FontWeights.Normal;
+                    }
+                }
+            }
+        }
+
+        private void PulseCardAnimation(Border card)
+        {
+            try
+            {
+                if (card.RenderTransform is ScaleTransform scale)
+                {
+                    var anim = new DoubleAnimation(0.92, 1.0, TimeSpan.FromMilliseconds(160))
+                    {
+                        EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+                    };
+                    scale.BeginAnimation(ScaleTransform.ScaleXProperty, anim);
+                    scale.BeginAnimation(ScaleTransform.ScaleYProperty, anim);
+                }
+            }
+            catch { }
+        }
+
+        private void UpdateCardSelection(string? selectedPath)
+        {
+            _selectedSubfolderPath = selectedPath;
+            foreach (UIElement child in FoldersWrapPanel.Children)
+            {
+                if (child is Border card)
+                {
+                    if (card.Tag is FolderItem folder)
+                    {
+                        bool isSelected = string.Equals(_selectedSubfolderPath, folder.FullPath, StringComparison.OrdinalIgnoreCase);
+                        ApplyFolderCardStyle(card, isSelected);
+                        if (isSelected)
+                        {
+                            PulseCardAnimation(card);
+                        }
+                    }
+                    else if (Equals(card.Tag, "BACK"))
+                    {
+                        ApplyBackCardStyle(card);
+                    }
+                }
+            }
         }
 
         #region Expandable Search Handlers
@@ -2244,12 +2424,13 @@ namespace WinReckApp
             var dialog = new OpenFolderDialog
             {
                 Title            = "Select Recordings Folder",
-                InitialDirectory = _recordingsFolder
+                InitialDirectory = _explorerFolder
             };
             if (dialog.ShowDialog() == true)
             {
-                _recordingsFolder = dialog.FolderName;
                 _rootRecordingsFolder = dialog.FolderName;
+                _explorerFolder = dialog.FolderName;
+                _recordingsFolder = dialog.FolderName;
                 _selectedSubfolderPath = null;
                 LoadRecordingsFromDisk();
                 AnimateRecordingsLoad();
