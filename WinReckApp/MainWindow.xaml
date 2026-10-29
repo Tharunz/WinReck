@@ -520,6 +520,50 @@
                         </StackPanel>
                     </Border>
                 </Grid>
+
+                <!-- SAVE RECORDING FOLDER PICKER MODAL -->
+                <Grid x:Name="SaveDestinationModalOverlay" Background="#D9000000" Visibility="Collapsed" Panel.ZIndex="210">
+                    <Border HorizontalAlignment="Center" VerticalAlignment="Center" Width="430" Background="#121216" BorderBrush="#2A2A34" BorderThickness="1" CornerRadius="14" Padding="22">
+                        <Border.Effect>
+                            <DropShadowEffect Color="#000000" BlurRadius="28" ShadowDepth="5" Opacity="0.95"/>
+                        </Border.Effect>
+                        <StackPanel>
+                            <!-- Header -->
+                            <TextBlock Text="Save Recording" FontSize="16" FontWeight="SemiBold" Foreground="#FFFFFF" Margin="0,0,0,4"/>
+                            <TextBlock Text="Choose destination folder for this recording:" FontSize="12" Foreground="#888899" Margin="0,0,0,14"/>
+
+                            <!-- Folder Selection Items (Quick Picker) -->
+                            <Border Background="#0B0B0E" BorderBrush="#1F1F26" BorderThickness="1" CornerRadius="8" MaxHeight="190" Padding="6" Margin="0,0,0,14">
+                                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                    <StackPanel x:Name="SaveDestinationsStackPanel"/>
+                                </ScrollViewer>
+                            </Border>
+
+                            <!-- Direct save checkbox option -->
+                            <Border Background="#16161C" BorderBrush="#252530" BorderThickness="1" CornerRadius="8" Padding="10,8" Margin="0,0,0,18" Cursor="Hand" MouseLeftButtonDown="ToggleDirectSaveOption_Click">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Border x:Name="DirectSaveCheckBox" Grid.Column="0" Width="16" Height="16" Background="#101014" BorderBrush="#353545" BorderThickness="1.5" CornerRadius="4" VerticalAlignment="Center" Margin="0,0,10,0">
+                                        <TextBlock x:Name="DirectSaveCheckMark" Text="✓" FontSize="11" Foreground="#00E5FF" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
+                                    </Border>
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                        <TextBlock Text="Always save directly to current selected folder" FontSize="11.5" FontWeight="Medium" Foreground="#E0E0E0"/>
+                                        <TextBlock Text="Skip this prompt in the future" FontSize="10" Foreground="#666677" Margin="0,1,0,0"/>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+
+                            <!-- Action Buttons -->
+                            <Grid>
+                                <Button Content="Cancel" Style="{StaticResource PillButtonStyle}" HorizontalAlignment="Left" Click="BtnSaveModalCancel_Click"/>
+                                <Button x:Name="BtnSaveModalConfirm" Content="Save to Selected" Style="{StaticResource PillButtonStyle}" HorizontalAlignment="Right" Click="BtnSaveModalConfirm_Click"/>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+                </Grid>
             </Grid>
         </Border>
     </Grid>

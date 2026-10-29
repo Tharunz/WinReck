@@ -54,6 +54,11 @@ namespace WinReckApp
         // Custom Modal State
         private Action? _modalConfirmAction = null;
 
+        // Save Destination Picker State
+        private bool _alwaysSaveToCurrentFolder = false;
+        private string? _pendingSaveDestinationFolder = null;
+        private byte[]? _pendingSaveData = null;
+
         // Native Recording Engine (Zero-Latency Pre-warmed)
         private WaveIn? _waveIn;
         private List<byte> _recordedBytes = new List<byte>();
@@ -479,26 +484,52 @@ namespace WinReckApp
 
                 if (data.Length > 0)
                 {
-                    string timestamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
-                    string finalPath = System.IO.Path.Combine(_recordingsFolder, $"Recording_{timestamp}.wav");
-
-                    try
+                    // If user opted to always save directly to the currently selected folder:
+                    if (_alwaysSaveToCurrentFolder)
                     {
-                        using (var writer = new WaveFileWriter(finalPath, _studioFormat))
-                            writer.Write(data, 0, data.Length);
-
-                        LoadRecordingsFromDisk();
-                        var saved = _recordings.FirstOrDefault(r => r.FilePath == finalPath);
-                        if (saved != null) SelectRecording(saved);
+                        CommitSaveRecordingToFolder(_recordingsFolder, data);
                     }
-                    catch (Exception ex)
+                    else
                     {
-                        ShowAppModal("Save Error", ex.Message, null);
+                        // Ask where to save it from the main folder / available folders
+                        ShowSaveDestinationModal(data);
+                        return; // Modal will complete saving or cancel
                     }
                 }
             }
 
             ResetLiveRecording();
+        }
+
+        private void CommitSaveRecordingToFolder(string targetFolder, byte[] data)
+        {
+            try
+            {
+                if (!Directory.Exists(targetFolder))
+                    Directory.CreateDirectory(targetFolder);
+
+                string timestamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
+                string finalPath = System.IO.Path.Combine(targetFolder, $"Recording_{timestamp}.wav");
+
+                using (var writer = new WaveFileWriter(finalPath, _studioFormat))
+                    writer.Write(data, 0, data.Length);
+
+                _recordingsFolder = targetFolder;
+                _selectedSubfolderPath = targetFolder;
+
+                LoadRecordingsFromDisk();
+                var saved = _recordings.FirstOrDefault(r => r.FilePath == finalPath);
+                if (saved != null) SelectRecording(saved);
+                AnimateRecordingsLoad();
+            }
+            catch (Exception ex)
+            {
+                ShowAppModal("Save Error", ex.Message, null);
+            }
+            finally
+            {
+                ResetLiveRecording();
+            }
         }
 
         #region Live Waveform Seeking (Pause & Preview)
@@ -1979,6 +2010,157 @@ namespace WinReckApp
         {
             CustomModalOverlay.Visibility = Visibility.Collapsed;
         }
+
+        #region Save Destination Folder Picker Modal
+        private void ShowSaveDestinationModal(byte[] data)
+        {
+            _pendingSaveData = data;
+            _pendingSaveDestinationFolder = _recordingsFolder; // default to currently selected folder
+
+            UpdateDirectSaveCheckboxUI();
+            PopulateSaveDestinationsList();
+
+            SaveDestinationModalOverlay.Visibility = Visibility.Visible;
+        }
+
+        private void ToggleDirectSaveOption_Click(object sender, MouseButtonEventArgs e)
+        {
+            _alwaysSaveToCurrentFolder = !_alwaysSaveToCurrentFolder;
+            UpdateDirectSaveCheckboxUI();
+        }
+
+        private void UpdateDirectSaveCheckboxUI()
+        {
+            if (_alwaysSaveToCurrentFolder)
+            {
+                DirectSaveCheckBox.Background = new SolidColorBrush(Color.FromRgb(0, 45, 60));
+                DirectSaveCheckBox.BorderBrush = new SolidColorBrush(CyanNeon);
+                DirectSaveCheckMark.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                DirectSaveCheckBox.Background = new SolidColorBrush(Color.FromRgb(16, 16, 20));
+                DirectSaveCheckBox.BorderBrush = new SolidColorBrush(Color.FromRgb(53, 53, 69));
+                DirectSaveCheckMark.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        private void PopulateSaveDestinationsList()
+        {
+            SaveDestinationsStackPanel.Children.Clear();
+
+            // Collect unique candidate folders starting from Main
+            var candidates = new List<(string Name, string Path)>();
+            candidates.Add(("Main (Root)", _rootRecordingsFolder));
+
+            try
+            {
+                if (Directory.Exists(_rootRecordingsFolder))
+                {
+                    var subdirs = Directory.GetDirectories(_rootRecordingsFolder, "*", SearchOption.AllDirectories);
+                    foreach (var d in subdirs)
+                    {
+                        string relative = System.IO.Path.GetRelativePath(_rootRecordingsFolder, d);
+                        candidates.Add((relative, d));
+                    }
+                }
+            }
+            catch { }
+
+            // If current recordings folder isn't in candidates, add it
+            if (!candidates.Any(c => string.Equals(c.Path, _recordingsFolder, StringComparison.OrdinalIgnoreCase)))
+            {
+                candidates.Add((System.IO.Path.GetFileName(_recordingsFolder), _recordingsFolder));
+            }
+
+            foreach (var item in candidates)
+            {
+                bool isSelected = string.Equals(_pendingSaveDestinationFolder, item.Path, StringComparison.OrdinalIgnoreCase);
+
+                var row = new Border
+                {
+                    CornerRadius    = new CornerRadius(6),
+                    Padding         = new Thickness(10, 8, 10, 8),
+                    Margin          = new Thickness(0, 0, 0, 4),
+                    Cursor          = Cursors.Hand,
+                    Background      = isSelected ? new SolidColorBrush(Color.FromArgb(45, 0, 229, 255)) : new SolidColorBrush(Color.FromRgb(18, 18, 24)),
+                    BorderBrush     = isSelected ? new SolidColorBrush(CyanNeon) : new SolidColorBrush(Color.FromRgb(30, 30, 38)),
+                    BorderThickness = new Thickness(isSelected ? 1.5 : 1),
+                    Tag             = item.Path
+                };
+
+                var grid = new Grid();
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Auto) });
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Auto) });
+
+                var icon = new TextBlock
+                {
+                    Text = "📁",
+                    FontSize = 13,
+                    Margin = new Thickness(0, 0, 10, 0),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                Grid.SetColumn(icon, 0);
+
+                var txtName = new TextBlock
+                {
+                    Text = item.Name,
+                    FontSize = 12,
+                    Foreground = isSelected ? new SolidColorBrush(CyanNeon) : new SolidColorBrush(Color.FromRgb(220, 220, 220)),
+                    FontWeight = isSelected ? FontWeights.SemiBold : FontWeights.Normal,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                };
+                Grid.SetColumn(txtName, 1);
+
+                if (isSelected)
+                {
+                    var badge = new TextBlock
+                    {
+                        Text = "selected",
+                        FontSize = 10,
+                        Foreground = new SolidColorBrush(CyanNeon),
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Margin = new Thickness(8, 0, 0, 0)
+                    };
+                    Grid.SetColumn(badge, 2);
+                    grid.Children.Add(badge);
+                }
+
+                grid.Children.Add(icon);
+                grid.Children.Add(txtName);
+                row.Child = grid;
+
+                row.MouseLeftButtonDown += (s, e) =>
+                {
+                    _pendingSaveDestinationFolder = item.Path;
+                    PopulateSaveDestinationsList();
+                };
+
+                SaveDestinationsStackPanel.Children.Add(row);
+            }
+        }
+
+        private void BtnSaveModalConfirm_Click(object sender, RoutedEventArgs e)
+        {
+            SaveDestinationModalOverlay.Visibility = Visibility.Collapsed;
+
+            string target = _pendingSaveDestinationFolder ?? _recordingsFolder;
+            if (_pendingSaveData != null && _pendingSaveData.Length > 0)
+            {
+                CommitSaveRecordingToFolder(target, _pendingSaveData);
+            }
+            _pendingSaveData = null;
+        }
+
+        private void BtnSaveModalCancel_Click(object sender, RoutedEventArgs e)
+        {
+            SaveDestinationModalOverlay.Visibility = Visibility.Collapsed;
+            _pendingSaveData = null;
+            ResetLiveRecording();
+        }
+        #endregion
         #endregion
 
         #region Unified Mirrored Waveform Rendering (Shared Design System)
