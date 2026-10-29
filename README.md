@@ -2,7 +2,8 @@
 
 > The Windows audio recorder you have been searching for.
 
-![WinReck](assets/screenshot.png)
+<img width="1414" height="762" alt="screenshot" src="https://github.com/user-attachments/assets/a225c8dc-69da-4d60-b184-b2dd830f5cfb" />
+
 
 A native WPF audio recorder for Windows — clean dark UI, live waveform, seekable playback, and a no-nonsense recordings library.
 
