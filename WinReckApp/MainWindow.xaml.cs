@@ -55,7 +55,7 @@ namespace WinReckApp
         private Action? _modalConfirmAction = null;
 
         // Save Destination Picker State
-        private bool _alwaysSaveToCurrentFolder = false;
+        private bool _saveDirectlyToSelectedFolder = false;
         private string? _pendingSaveDestinationFolder = null;
         private byte[]? _pendingSaveData = null;
 
@@ -484,8 +484,8 @@ namespace WinReckApp
 
                 if (data.Length > 0)
                 {
-                    // If user opted to always save directly to the currently selected folder:
-                    if (_alwaysSaveToCurrentFolder)
+                    // If user enabled the UI checkbox to save directly to the currently selected folder:
+                    if (_saveDirectlyToSelectedFolder)
                     {
                         CommitSaveRecordingToFolder(_recordingsFolder, data);
                     }
@@ -2017,7 +2017,6 @@ namespace WinReckApp
             _pendingSaveData = data;
             _pendingSaveDestinationFolder = _recordingsFolder; // default to currently selected folder
 
-            UpdateDirectSaveCheckboxUI();
             PopulateSaveDestinationsList();
 
             SaveDestinationModalOverlay.Visibility = Visibility.Visible;
@@ -2025,13 +2024,13 @@ namespace WinReckApp
 
         private void ToggleDirectSaveOption_Click(object sender, MouseButtonEventArgs e)
         {
-            _alwaysSaveToCurrentFolder = !_alwaysSaveToCurrentFolder;
+            _saveDirectlyToSelectedFolder = !_saveDirectlyToSelectedFolder;
             UpdateDirectSaveCheckboxUI();
         }
 
         private void UpdateDirectSaveCheckboxUI()
         {
-            if (_alwaysSaveToCurrentFolder)
+            if (_saveDirectlyToSelectedFolder)
             {
                 DirectSaveCheckBox.Background = new SolidColorBrush(Color.FromRgb(0, 45, 60));
                 DirectSaveCheckBox.BorderBrush = new SolidColorBrush(CyanNeon);
