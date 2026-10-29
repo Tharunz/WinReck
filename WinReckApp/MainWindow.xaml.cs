@@ -40,7 +40,8 @@ namespace WinReckApp
         private string _rootRecordingsFolder = "";
         private List<FolderItem> _subfolders = new List<FolderItem>();
         private string? _selectedSubfolderPath = null;
-        private string _searchQuery = "";
+        private string _folderSearchQuery = "";
+        private string _recordingSearchQuery = "";
         private List<RecordingItem> _recordings = new List<RecordingItem>();
         private RecordingItem? _selectedRecording = null;
         private string? _inlineEditingFilePath = null;
@@ -985,7 +986,7 @@ namespace WinReckApp
         }
         #endregion
 
-        #region Recordings Library — Scan, Subfolders & Search
+        #region Folders & Recordings Library (Explorer Grid Layout)
         private void LoadRecordingsFromDisk(bool autoSelectFirst = false)
         {
             _recordings.Clear();
@@ -996,8 +997,8 @@ namespace WinReckApp
                 Directory.CreateDirectory(_recordingsFolder);
             }
 
-            // Update Current Folder Path Display
-            UpdateFolderPathUI();
+            // Update Header Subtitle ("in <FolderName>")
+            UpdateRecordingsSubtitle();
 
             // Scan subfolders
             _subfolders.Clear();
@@ -1038,7 +1039,7 @@ namespace WinReckApp
                     {
                         using var reader = new AudioFileReader(f);
                         var dur   = reader.TotalTime;
-                        var date  = File.GetCreationTime(f).ToString("dd MMM yyyy");
+                        var date  = File.GetCreationTime(f).ToString("dd-MM-yyyy");
                         var title = System.IO.Path.GetFileNameWithoutExtension(f);
                         float[] samples = GenerateWaveformSamples(reader, 320);
 
@@ -1064,7 +1065,7 @@ namespace WinReckApp
             }
             catch { }
 
-            RefreshSubfoldersUI();
+            RefreshFoldersUI();
 
             if (_recordings.Count > 0 && autoSelectFirst && _selectedRecording == null)
             {
@@ -1092,65 +1093,27 @@ namespace WinReckApp
             RefreshRecordingsUI();
         }
 
-        private void UpdateFolderPathUI()
+        private void UpdateRecordingsSubtitle()
         {
             bool isRoot = string.Equals(_recordingsFolder.TrimEnd('\\', '/'), _rootRecordingsFolder.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase);
             if (isRoot)
             {
-                TxtCurrentFolderPath.Text = "WinReck Recordings";
-                BtnFolderUp.Visibility = Visibility.Collapsed;
+                TxtRecordingsFolderSubtitle.Text = "in Main";
             }
             else
             {
                 var folderName = System.IO.Path.GetFileName(_recordingsFolder);
                 if (string.IsNullOrEmpty(folderName)) folderName = _recordingsFolder;
-                TxtCurrentFolderPath.Text = folderName;
-                BtnFolderUp.Visibility = Visibility.Visible;
+                TxtRecordingsFolderSubtitle.Text = $"in {folderName}";
             }
-            TxtCurrentFolderPath.ToolTip = _recordingsFolder;
-        }
-
-        private void TxtCurrentFolderPath_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-        {
-            try
-            {
-                if (Directory.Exists(_recordingsFolder))
-                {
-                    Process.Start(new ProcessStartInfo
-                    {
-                        FileName = _recordingsFolder,
-                        UseShellExecute = true
-                    });
-                }
-            }
-            catch { }
-        }
-
-        private void BtnFolderUp_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                var parent = Directory.GetParent(_recordingsFolder);
-                if (parent != null && parent.Exists)
-                {
-                    NavigateToFolder(parent.FullName);
-                }
-                else
-                {
-                    NavigateToFolder(_rootRecordingsFolder);
-                }
-            }
-            catch
-            {
-                NavigateToFolder(_rootRecordingsFolder);
-            }
+            TxtRecordingsFolderSubtitle.ToolTip = _recordingsFolder;
         }
 
         private void NavigateToFolder(string targetFolder)
         {
             if (!Directory.Exists(targetFolder)) return;
             _recordingsFolder = targetFolder;
-            _selectedSubfolderPath = null;
+            _selectedSubfolderPath = targetFolder;
             LoadRecordingsFromDisk(autoSelectFirst: false);
             AnimateRecordingsLoad();
         }
@@ -1173,123 +1136,239 @@ namespace WinReckApp
             catch { }
         }
 
-        private void RefreshSubfoldersUI()
+        private void RefreshFoldersUI()
         {
-            SubfoldersStackPanel.Children.Clear();
+            FoldersHorizontalStackPanel.Children.Clear();
+
+            bool isRoot = string.Equals(_recordingsFolder.TrimEnd('\\', '/'), _rootRecordingsFolder.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase);
+
+            // If inside a subfolder, add a "Back" navigation card first
+            if (!isRoot)
+            {
+                Border backCard = CreateFolderCard("⮤ Back", isSelected: false, isSpecialBack: true, clickAction: () =>
+                {
+                    try
+                    {
+                        var parent = Directory.GetParent(_recordingsFolder);
+                        NavigateToFolder(parent?.FullName ?? _rootRecordingsFolder);
+                    }
+                    catch
+                    {
+                        NavigateToFolder(_rootRecordingsFolder);
+                    }
+                });
+                FoldersHorizontalStackPanel.Children.Add(backCard);
+            }
 
             var list = _subfolders;
-            if (!string.IsNullOrWhiteSpace(_searchQuery))
+            if (!string.IsNullOrWhiteSpace(_folderSearchQuery))
             {
-                list = _subfolders.Where(f => f.Name.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase)).ToList();
+                list = _subfolders.Where(f => f.Name.Contains(_folderSearchQuery, StringComparison.OrdinalIgnoreCase)).ToList();
             }
 
-            if (list.Count == 0)
+            if (list.Count == 0 && isRoot)
             {
-                SubfoldersContainer.Visibility = Visibility.Collapsed;
+                Border mainCard = CreateFolderCard("Main", isSelected: true, clickAction: () => { });
+                FoldersHorizontalStackPanel.Children.Add(mainCard);
                 return;
             }
-
-            SubfoldersContainer.Visibility = Visibility.Visible;
 
             foreach (var folder in list)
             {
                 bool isSelected = string.Equals(_selectedSubfolderPath, folder.FullPath, StringComparison.OrdinalIgnoreCase);
 
-                Border folderBorder = new Border
+                Border folderCard = CreateFolderCard(folder.Name, isSelected: isSelected, clickAction: () =>
                 {
-                    Margin          = new Thickness(0, 1.5, 0, 1.5),
-                    CornerRadius    = new CornerRadius(6),
-                    Padding         = new Thickness(8, 5, 8, 5),
-                    Background      = isSelected ? new SolidColorBrush(Color.FromArgb(40, 0, 229, 255)) : Brushes.Transparent,
-                    BorderBrush     = isSelected ? new SolidColorBrush(Color.FromArgb(90, 0, 229, 255)) : Brushes.Transparent,
-                    BorderThickness = new Thickness(1),
-                    Cursor          = Cursors.Hand
-                };
-
-                Grid row = new Grid();
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(20) });
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-                TextBlock icon = new TextBlock
+                    _selectedSubfolderPath = folder.FullPath;
+                    RefreshFoldersUI();
+                }, doubleClickAction: () =>
                 {
-                    Text = "📁",
-                    FontSize = 11,
-                    Foreground = new SolidColorBrush(Color.FromRgb(245, 166, 35)),
-                    VerticalAlignment = VerticalAlignment.Center
-                };
-                Grid.SetColumn(icon, 0);
+                    NavigateToFolder(folder.FullPath);
+                });
 
-                TextBlock name = new TextBlock
-                {
-                    Text = folder.Name,
-                    FontSize = 11.5,
-                    FontWeight = FontWeights.Medium,
-                    Foreground = isSelected ? new SolidColorBrush(CyanNeon) : new SolidColorBrush(Color.FromRgb(215, 215, 215)),
-                    TextTrimming = TextTrimming.CharacterEllipsis,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(0, 0, 8, 0)
-                };
-                Grid.SetColumn(name, 1);
-
-                TextBlock count = new TextBlock
-                {
-                    Text = $"{folder.AudioCount} audio{(folder.AudioCount == 1 ? "" : "s")}",
-                    FontSize = 10,
-                    Foreground = new SolidColorBrush(Color.FromRgb(110, 110, 115)),
-                    VerticalAlignment = VerticalAlignment.Center
-                };
-                Grid.SetColumn(count, 2);
-
-                row.Children.Add(icon);
-                row.Children.Add(name);
-                row.Children.Add(count);
-                folderBorder.Child = row;
-
-                folderBorder.MouseEnter += (s, e) =>
-                {
-                    if (!string.Equals(_selectedSubfolderPath, folder.FullPath, StringComparison.OrdinalIgnoreCase))
-                        folderBorder.Background = new SolidColorBrush(Color.FromRgb(22, 22, 26));
-                };
-                folderBorder.MouseLeave += (s, e) =>
-                {
-                    if (!string.Equals(_selectedSubfolderPath, folder.FullPath, StringComparison.OrdinalIgnoreCase))
-                        folderBorder.Background = Brushes.Transparent;
-                };
-
-                // Single-click: select/highlight; Double-click: load subfolder audios with animation!
-                folderBorder.MouseLeftButtonDown += (s, e) =>
-                {
-                    if (e.ClickCount == 1)
-                    {
-                        _selectedSubfolderPath = folder.FullPath;
-                        RefreshSubfoldersUI();
-                    }
-                    else if (e.ClickCount >= 2)
-                    {
-                        NavigateToFolder(folder.FullPath);
-                    }
-                };
-
-                SubfoldersStackPanel.Children.Add(folderBorder);
+                FoldersHorizontalStackPanel.Children.Add(folderCard);
             }
         }
 
-        private void TxtSearchBox_TextChanged(object sender, TextChangedEventArgs e)
+        private Border CreateFolderCard(string name, bool isSelected = false, bool isSpecialBack = false, Action? clickAction = null, Action? doubleClickAction = null)
         {
-            _searchQuery = TxtSearchBox.Text.Trim();
-            TxtSearchPlaceholder.Visibility = string.IsNullOrEmpty(TxtSearchBox.Text) ? Visibility.Visible : Visibility.Collapsed;
-            BtnClearSearch.Visibility = string.IsNullOrEmpty(TxtSearchBox.Text) ? Visibility.Collapsed : Visibility.Visible;
+            Border card = new Border
+            {
+                Width           = 74,
+                Height          = 70,
+                CornerRadius    = new CornerRadius(8),
+                Padding         = new Thickness(4, 6, 4, 6),
+                Margin          = new Thickness(0, 0, 8, 0),
+                Cursor          = Cursors.Hand,
+                Background      = isSelected ? new SolidColorBrush(Color.FromRgb(32, 36, 44)) : new SolidColorBrush(Color.FromRgb(16, 16, 20)),
+                BorderBrush     = isSelected ? new SolidColorBrush(Color.FromRgb(60, 72, 88)) : new SolidColorBrush(Color.FromRgb(26, 26, 32)),
+                BorderThickness = new Thickness(1)
+            };
 
-            RefreshSubfoldersUI();
+            StackPanel sp = new StackPanel
+            {
+                Orientation       = Orientation.Vertical,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment   = VerticalAlignment.Center
+            };
+
+            if (isSpecialBack)
+            {
+                Border backIcon = new Border
+                {
+                    Width = 36, Height = 22,
+                    Background = new SolidColorBrush(Color.FromRgb(28, 34, 44)),
+                    CornerRadius = new CornerRadius(4),
+                    HorizontalAlignment = HorizontalAlignment.Center
+                };
+                backIcon.Child = new TextBlock
+                {
+                    Text = "⮤",
+                    FontSize = 13,
+                    FontWeight = FontWeights.Bold,
+                    Foreground = new SolidColorBrush(CyanNeon),
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                sp.Children.Add(backIcon);
+            }
+            else
+            {
+                // Graphical Folder Icon matching user's mockup
+                Grid folderGraphic = new Grid
+                {
+                    Width = 36, Height = 22,
+                    HorizontalAlignment = HorizontalAlignment.Center
+                };
+                Border tab = new Border
+                {
+                    Width = 14, Height = 5,
+                    Background = new SolidColorBrush(Color.FromRgb(84, 160, 224)),
+                    CornerRadius = new CornerRadius(2, 2, 0, 0),
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    VerticalAlignment = VerticalAlignment.Top
+                };
+                Border body = new Border
+                {
+                    Width = 36, Height = 19,
+                    Background = new SolidColorBrush(Color.FromRgb(96, 169, 232)),
+                    CornerRadius = new CornerRadius(3),
+                    VerticalAlignment = VerticalAlignment.Bottom
+                };
+                folderGraphic.Children.Add(tab);
+                folderGraphic.Children.Add(body);
+                sp.Children.Add(folderGraphic);
+            }
+
+            TextBlock nameBlock = new TextBlock
+            {
+                Text              = name,
+                FontSize          = 10,
+                Foreground        = isSelected ? new SolidColorBrush(CyanNeon) : new SolidColorBrush(Color.FromRgb(215, 215, 215)),
+                FontWeight        = isSelected ? FontWeights.SemiBold : FontWeights.Normal,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                TextAlignment     = TextAlignment.Center,
+                TextTrimming      = TextTrimming.CharacterEllipsis,
+                MaxWidth          = 66,
+                Margin            = new Thickness(0, 5, 0, 0)
+            };
+            sp.Children.Add(nameBlock);
+
+            card.Child = sp;
+
+            card.MouseEnter += (s, e) =>
+            {
+                if (!isSelected)
+                    card.Background = new SolidColorBrush(Color.FromRgb(24, 26, 32));
+            };
+            card.MouseLeave += (s, e) =>
+            {
+                if (!isSelected)
+                    card.Background = new SolidColorBrush(Color.FromRgb(16, 16, 20));
+            };
+
+            card.MouseLeftButtonDown += (s, e) =>
+            {
+                if (e.ClickCount == 1)
+                {
+                    clickAction?.Invoke();
+                }
+                else if (e.ClickCount >= 2)
+                {
+                    if (doubleClickAction != null) doubleClickAction.Invoke();
+                    else clickAction?.Invoke();
+                }
+            };
+
+            return card;
+        }
+
+        #region Expandable Search Handlers
+        private void SearchBox_GotFocus(object sender, RoutedEventArgs e)
+        {
+            if (sender is TextBox tb)
+            {
+                Border? parentBorder = (tb == TxtFolderSearch) ? FolderSearchBorder : RecordingSearchBorder;
+                if (parentBorder != null)
+                {
+                    var anim = new DoubleAnimation(150, TimeSpan.FromMilliseconds(200))
+                    {
+                        EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                    };
+                    parentBorder.BeginAnimation(FrameworkElement.WidthProperty, anim);
+                    parentBorder.BorderBrush = new SolidColorBrush(CyanNeon);
+                }
+            }
+        }
+
+        private void SearchBox_LostFocus(object sender, RoutedEventArgs e)
+        {
+            if (sender is TextBox tb)
+            {
+                Border? parentBorder = (tb == TxtFolderSearch) ? FolderSearchBorder : RecordingSearchBorder;
+                if (parentBorder != null)
+                {
+                    if (string.IsNullOrEmpty(tb.Text))
+                    {
+                        var anim = new DoubleAnimation(85, TimeSpan.FromMilliseconds(200))
+                        {
+                            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                        };
+                        parentBorder.BeginAnimation(FrameworkElement.WidthProperty, anim);
+                    }
+                    parentBorder.BorderBrush = new SolidColorBrush(Color.FromRgb(37, 37, 43));
+                }
+            }
+        }
+
+        private void TxtFolderSearch_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            _folderSearchQuery = TxtFolderSearch.Text.Trim();
+            TxtFolderSearchPlaceholder.Visibility = string.IsNullOrEmpty(TxtFolderSearch.Text) ? Visibility.Visible : Visibility.Collapsed;
+            BtnClearFolderSearch.Visibility = string.IsNullOrEmpty(TxtFolderSearch.Text) ? Visibility.Collapsed : Visibility.Visible;
+            RefreshFoldersUI();
+        }
+
+        private void BtnClearFolderSearch_Click(object sender, RoutedEventArgs e)
+        {
+            TxtFolderSearch.Text = "";
+            TxtFolderSearch.Focus();
+        }
+
+        private void TxtRecordingSearch_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            _recordingSearchQuery = TxtRecordingSearch.Text.Trim();
+            TxtRecordingSearchPlaceholder.Visibility = string.IsNullOrEmpty(TxtRecordingSearch.Text) ? Visibility.Visible : Visibility.Collapsed;
+            BtnClearRecordingSearch.Visibility = string.IsNullOrEmpty(TxtRecordingSearch.Text) ? Visibility.Collapsed : Visibility.Visible;
             RefreshRecordingsUI();
         }
 
-        private void BtnClearSearch_Click(object sender, RoutedEventArgs e)
+        private void BtnClearRecordingSearch_Click(object sender, RoutedEventArgs e)
         {
-            TxtSearchBox.Text = "";
-            TxtSearchBox.Focus();
+            TxtRecordingSearch.Text = "";
+            TxtRecordingSearch.Focus();
         }
+        #endregion
 
         // Generates a well-normalized, naturally dynamic waveform thumbnail.
         // Key insight: each 4096-byte buffer (~5ms of audio) becomes one raw data point.
@@ -1384,12 +1463,10 @@ namespace WinReckApp
             RecordingsStackPanel.Children.Clear();
 
             var displayList = _recordings;
-            if (!string.IsNullOrWhiteSpace(_searchQuery))
+            if (!string.IsNullOrWhiteSpace(_recordingSearchQuery))
             {
-                displayList = _recordings.Where(r => r.Title.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase)).ToList();
+                displayList = _recordings.Where(r => r.Title.Contains(_recordingSearchQuery, StringComparison.OrdinalIgnoreCase)).ToList();
             }
-
-            TxtRecordingsCount.Text = $"{displayList.Count} file{(displayList.Count == 1 ? "" : "s")}";
 
             if (displayList.Count == 0)
             {
@@ -1401,7 +1478,7 @@ namespace WinReckApp
                 };
                 emptyPanel.Children.Add(new TextBlock
                 {
-                    Text = string.IsNullOrWhiteSpace(_searchQuery) ? "No recordings in this folder" : "No matches found",
+                    Text = string.IsNullOrWhiteSpace(_recordingSearchQuery) ? "No recordings in this folder" : "No matches found",
                     FontSize = 13,
                     FontWeight = FontWeights.Medium,
                     Foreground = new SolidColorBrush(Color.FromRgb(120, 120, 120)),
@@ -1410,7 +1487,7 @@ namespace WinReckApp
                 });
                 emptyPanel.Children.Add(new TextBlock
                 {
-                    Text = string.IsNullOrWhiteSpace(_searchQuery) ? "Click ● to record audio" : "Try a different search query",
+                    Text = string.IsNullOrWhiteSpace(_recordingSearchQuery) ? "Click ● to record audio" : "Try a different search query",
                     FontSize = 11,
                     Foreground = new SolidColorBrush(Color.FromRgb(80, 80, 80)),
                     HorizontalAlignment = HorizontalAlignment.Center
@@ -1496,7 +1573,7 @@ namespace WinReckApp
                     Margin = new Thickness(0, 0, 9, 0),
                     Fill   = isSelected
                         ? new SolidColorBrush(CyanNeon)
-                        : new SolidColorBrush(Color.FromRgb(70, 70, 70))
+                        : new SolidColorBrush(Color.FromRgb(210, 50, 60))
                 };
                 leftSp.Children.Add(dot);
 
