@@ -1,6 +1,6 @@
 # WinReck
 
-> The Windows audio recorder that doesn't suck.
+> The Windows audio recorder you have been searching for.
 
 ![WinReck](assets/screenshot.png)
 
