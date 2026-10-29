@@ -16,16 +16,6 @@ Download the latest self-contained `.exe` from [SourceForge](https://sourceforge
 
 ---
 
-## Features
-
-- 🎙️ Record from any input device with live waveform visualization
-- 🔊 Playback with seekable waveform and playhead
-- 📁 Recordings library with inline rename, delete, and batch selection
-- 💾 Saves as 48kHz 16-bit stereo WAV to `~/Music/WinReck Recordings/`
-- 🎨 Dark theme, zero OS dialogs
-
----
-
 ## Build from Source
 
 **Requirements:** Windows 10/11 · [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0)
