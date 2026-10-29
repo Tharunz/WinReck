@@ -1,0 +1,28 @@
+# .NET build outputs
+bin/
+obj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userprefs
+*.DotSettings.user
+
+# JetBrains Rider
+.idea/
+
+# NuGet
+packages/
+*.nupkg
+
+# Publish output
+release/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# User recordings (personal data)
+WinReck Recordings/
