@@ -318,10 +318,27 @@
                                         </Border>
                                     </Grid>
 
-                                    <!-- Horizontal Folder Cards ScrollViewer -->
-                                    <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Padding="0,2,0,4">
-                                        <StackPanel x:Name="FoldersHorizontalStackPanel" Orientation="Horizontal" VerticalAlignment="Center"/>
-                                    </ScrollViewer>
+                                    <!-- Folder Cards Container with Hidden Scrollbar + Row-by-Row Scroll -->
+                                    <Grid Grid.Row="1">
+                                        <ScrollViewer x:Name="FoldersScrollViewer"
+                                                      VerticalScrollBarVisibility="Hidden"
+                                                      HorizontalScrollBarVisibility="Disabled"
+                                                      MaxHeight="240"
+                                                      Padding="0,2,0,4"
+                                                      PreviewMouseWheel="FoldersScrollViewer_PreviewMouseWheel"
+                                                      ScrollChanged="FoldersScrollViewer_ScrollChanged">
+                                            <WrapPanel x:Name="FoldersWrapPanel" Orientation="Horizontal"/>
+                                        </ScrollViewer>
+
+                                        <!-- Small Scroll Indicator telling users they can scroll row by row -->
+                                        <Border x:Name="FolderScrollIndicator" Background="#E6181820" BorderBrush="#2A2A36" BorderThickness="1" CornerRadius="10" Padding="7,3" VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="0,0,4,4" Visibility="Collapsed" Cursor="Hand" ToolTip="Click or use mouse wheel to scroll row by row" MouseLeftButtonDown="FolderScrollIndicator_Click">
+                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                <TextBlock Text="🖱️" FontSize="9" Margin="0,0,4,0" VerticalAlignment="Center"/>
+                                                <TextBlock x:Name="TxtScrollIndicatorText" Text="scroll" FontSize="9.5" Foreground="#888899" VerticalAlignment="Center" Margin="0,0,3,0"/>
+                                                <TextBlock x:Name="TxtScrollArrow" Text="▾" FontSize="10" Foreground="#00E5FF" FontWeight="Bold" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Border>
+                                    </Grid>
                                 </Grid>
                             </Border>
 

@@ -1138,7 +1138,7 @@ namespace WinReckApp
 
         private void RefreshFoldersUI()
         {
-            FoldersHorizontalStackPanel.Children.Clear();
+            FoldersWrapPanel.Children.Clear();
 
             bool isRoot = string.Equals(_recordingsFolder.TrimEnd('\\', '/'), _rootRecordingsFolder.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase);
 
@@ -1157,7 +1157,7 @@ namespace WinReckApp
                         NavigateToFolder(_rootRecordingsFolder);
                     }
                 });
-                FoldersHorizontalStackPanel.Children.Add(backCard);
+                FoldersWrapPanel.Children.Add(backCard);
             }
 
             var list = _subfolders;
@@ -1169,7 +1169,8 @@ namespace WinReckApp
             if (list.Count == 0 && isRoot)
             {
                 Border mainCard = CreateFolderCard("Main", isSelected: true, clickAction: () => { });
-                FoldersHorizontalStackPanel.Children.Add(mainCard);
+                FoldersWrapPanel.Children.Add(mainCard);
+                UpdateFolderScrollIndicator();
                 return;
             }
 
@@ -1186,8 +1187,10 @@ namespace WinReckApp
                     NavigateToFolder(folder.FullPath);
                 });
 
-                FoldersHorizontalStackPanel.Children.Add(folderCard);
+                FoldersWrapPanel.Children.Add(folderCard);
             }
+
+            UpdateFolderScrollIndicator();
         }
 
         private Border CreateFolderCard(string name, bool isSelected = false, bool isSpecialBack = false, Action? clickAction = null, Action? doubleClickAction = null)
@@ -1198,7 +1201,7 @@ namespace WinReckApp
                 Height          = 70,
                 CornerRadius    = new CornerRadius(8),
                 Padding         = new Thickness(4, 6, 4, 6),
-                Margin          = new Thickness(0, 0, 8, 0),
+                Margin          = new Thickness(0, 0, 8, 8),
                 Cursor          = Cursors.Hand,
                 Background      = isSelected ? new SolidColorBrush(Color.FromRgb(32, 36, 44)) : new SolidColorBrush(Color.FromRgb(16, 16, 20)),
                 BorderBrush     = isSelected ? new SolidColorBrush(Color.FromRgb(60, 72, 88)) : new SolidColorBrush(Color.FromRgb(26, 26, 32)),
@@ -1367,6 +1370,63 @@ namespace WinReckApp
         {
             TxtRecordingSearch.Text = "";
             TxtRecordingSearch.Focus();
+        }
+        #endregion
+
+        #region Folder Cards Row Scrolling & Indicator
+        private void UpdateFolderScrollIndicator()
+        {
+            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, new Action(() =>
+            {
+                if (FoldersScrollViewer == null || FolderScrollIndicator == null) return;
+
+                double scrollable = FoldersScrollViewer.ScrollableHeight;
+                if (scrollable <= 1.0)
+                {
+                    FolderScrollIndicator.Visibility = Visibility.Collapsed;
+                    return;
+                }
+
+                FolderScrollIndicator.Visibility = Visibility.Visible;
+                double offset = FoldersScrollViewer.VerticalOffset;
+                bool atBottom = offset >= (scrollable - 2.0);
+
+                if (TxtScrollArrow != null)
+                {
+                    TxtScrollArrow.Text = atBottom ? "▴" : "▾";
+                }
+                if (TxtScrollIndicatorText != null)
+                {
+                    TxtScrollIndicatorText.Text = atBottom ? "scroll up" : "scroll";
+                }
+            }));
+        }
+
+        private void FoldersScrollViewer_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            e.Handled = true;
+            const double rowHeight = 78.0;
+            double currentOffset = FoldersScrollViewer.VerticalOffset;
+            double targetOffset = e.Delta < 0 ? currentOffset + rowHeight : currentOffset - rowHeight;
+            double snappedOffset = Math.Round(targetOffset / rowHeight) * rowHeight;
+            double clampedOffset = Math.Clamp(snappedOffset, 0, FoldersScrollViewer.ScrollableHeight);
+            FoldersScrollViewer.ScrollToVerticalOffset(clampedOffset);
+        }
+
+        private void FoldersScrollViewer_ScrollChanged(object sender, ScrollChangedEventArgs e)
+        {
+            UpdateFolderScrollIndicator();
+        }
+
+        private void FolderScrollIndicator_Click(object sender, MouseButtonEventArgs e)
+        {
+            const double rowHeight = 78.0;
+            bool atBottom = FoldersScrollViewer.VerticalOffset >= (FoldersScrollViewer.ScrollableHeight - 2.0);
+            double currentOffset = FoldersScrollViewer.VerticalOffset;
+            double targetOffset = atBottom ? currentOffset - rowHeight : currentOffset + rowHeight;
+            double snappedOffset = Math.Round(targetOffset / rowHeight) * rowHeight;
+            double clampedOffset = Math.Clamp(snappedOffset, 0, FoldersScrollViewer.ScrollableHeight);
+            FoldersScrollViewer.ScrollToVerticalOffset(clampedOffset);
         }
         #endregion
 
