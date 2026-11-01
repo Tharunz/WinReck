@@ -1968,23 +1968,23 @@ namespace WinReckApp
                     TextBlock btnDeleteIcon = new TextBlock
                     {
                         Text                = "✕",
-                        FontSize            = 11,
-                        Foreground          = new SolidColorBrush(Color.FromRgb(160, 60, 60)),
+                        FontSize            = 11.5,
+                        Foreground          = new SolidColorBrush(Color.FromRgb(255, 100, 100)),
                         HorizontalAlignment = HorizontalAlignment.Center,
                         VerticalAlignment   = VerticalAlignment.Center,
                         Cursor              = Cursors.Hand,
-                        Opacity             = 0.35,
+                        Opacity             = 0.80,
                         ToolTip             = "Delete recording"
                     };
                     btnDeleteIcon.MouseEnter += (s, ev) =>
                     {
                         ((TextBlock)s).Opacity = 1.0;
-                        ((TextBlock)s).Foreground = new SolidColorBrush(Color.FromRgb(255, 77, 77));
+                        ((TextBlock)s).Foreground = new SolidColorBrush(Color.FromRgb(255, 45, 55));
                     };
                     btnDeleteIcon.MouseLeave += (s, ev) =>
                     {
-                        ((TextBlock)s).Opacity = 0.35;
-                        ((TextBlock)s).Foreground = new SolidColorBrush(Color.FromRgb(160, 60, 60));
+                        ((TextBlock)s).Opacity = 0.80;
+                        ((TextBlock)s).Foreground = new SolidColorBrush(Color.FromRgb(255, 100, 100));
                     };
                     btnDeleteIcon.MouseLeftButtonDown += (s, ev) =>
                     {
@@ -1994,15 +1994,24 @@ namespace WinReckApp
                     Grid.SetColumn(btnDeleteIcon, 3);
                     row.Children.Add(btnDeleteIcon);
 
-                    ContextMenu cm = new ContextMenu
+                    ContextMenu cm = new ContextMenu();
+                    MenuItem miRename = new MenuItem
                     {
-                        Background  = new SolidColorBrush(Color.FromRgb(18, 18, 20)),
-                        BorderBrush = new SolidColorBrush(Color.FromRgb(40, 40, 45))
+                        Header    = "Rename",
+                        FontSize  = 11.5,
+                        Icon      = new TextBlock { Text = "✏️", FontSize = 10, VerticalAlignment = VerticalAlignment.Center }
                     };
-                    MenuItem miRename = new MenuItem { Header = "Rename", Foreground = Brushes.White, FontSize = 11 };
                     miRename.Click += (s, ev) => StartInlineRename(item.FilePath);
-                    MenuItem miDelete = new MenuItem { Header = "Delete", Foreground = new SolidColorBrush(Color.FromRgb(255, 77, 77)), FontSize = 11 };
+
+                    MenuItem miDelete = new MenuItem
+                    {
+                        Header     = "Delete",
+                        Foreground = new SolidColorBrush(Color.FromRgb(255, 80, 80)),
+                        FontSize   = 11.5,
+                        Icon       = new TextBlock { Text = "🗑️", FontSize = 10, VerticalAlignment = VerticalAlignment.Center }
+                    };
                     miDelete.Click += (s, ev) => DeleteSingleRecording(item);
+
                     cm.Items.Add(miRename);
                     cm.Items.Add(miDelete);
                     rowBorder.ContextMenu = cm;
@@ -2633,9 +2642,56 @@ namespace WinReckApp
         #endregion
 
         #region Window Actions
+        private Point _titleBarClickPos;
+        private bool _isTitleBarMouseDown = false;
+
         private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            if (e.ButtonState == MouseButtonState.Pressed) this.DragMove();
+            if (e.ClickCount == 2)
+            {
+                this.WindowState = (this.WindowState == WindowState.Maximized) ? WindowState.Normal : WindowState.Maximized;
+                return;
+            }
+
+            if (e.ButtonState == MouseButtonState.Pressed)
+            {
+                _isTitleBarMouseDown = true;
+                _titleBarClickPos = e.GetPosition(this);
+
+                if (this.WindowState == WindowState.Normal)
+                {
+                    try { this.DragMove(); } catch { }
+                }
+            }
+        }
+
+        private void TitleBar_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (_isTitleBarMouseDown && e.LeftButton == MouseButtonState.Pressed && this.WindowState == WindowState.Maximized)
+            {
+                Point curPos = e.GetPosition(this);
+                Vector diff = curPos - _titleBarClickPos;
+
+                if (Math.Abs(diff.X) > 4 || Math.Abs(diff.Y) > 4)
+                {
+                    _isTitleBarMouseDown = false;
+
+                    Point screenPos = PointToScreen(curPos);
+                    double percentX = curPos.X / Math.Max(1.0, this.ActualWidth);
+
+                    this.WindowState = WindowState.Normal;
+
+                    this.Left = screenPos.X - (this.ActualWidth * percentX);
+                    this.Top = Math.Max(0, screenPos.Y - curPos.Y);
+
+                    try { this.DragMove(); } catch { }
+                }
+            }
+        }
+
+        private void TitleBar_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            _isTitleBarMouseDown = false;
         }
 
         private void BtnMinimize_Click(object sender, RoutedEventArgs e)  => this.WindowState = WindowState.Minimized;
