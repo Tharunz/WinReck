@@ -75,10 +75,11 @@ namespace WinReckApp
         // Live Preview Playback — uses a temp WAV file + AudioFileReader (same engine as library player)
         private WaveOut?         _previewWaveOut;
         private AudioFileReader? _previewAudioReader;
-        private string           _previewTempWav = "";
+        private string           _previewTempWav   = "";
         private DispatcherTimer  _previewTimer;
-        private bool             _isPreviewPlaying  = false;
-        private bool             _isLiveScrubbing   = false;
+        private bool             _isPreviewPlaying = false;
+        private bool             _isLiveScrubbing  = false;
+        private TimeSpan         _liveSeekPosition = TimeSpan.Zero;
 
         // Library Playback Engine & Seekable Waveform
         private WaveOut? _libWaveOut;
@@ -304,6 +305,7 @@ namespace WinReckApp
             _recTimer.Start();
             _isRecording = true;
             _isPaused = false;
+            _liveSeekPosition = TimeSpan.Zero;
 
             PausedActionControls.Visibility = Visibility.Collapsed;
             TxtRecStatus.Text = "Recording...";
@@ -341,6 +343,7 @@ namespace WinReckApp
         {
             StopLivePreview();
             _isPaused = false;
+            _liveSeekPosition = TimeSpan.Zero;
             _recStopwatch.Start();
             _recTimer.Start();
 
@@ -381,6 +384,18 @@ namespace WinReckApp
 
                 _previewAudioReader = new AudioFileReader(_previewTempWav);
 
+                TimeSpan startAt = _liveSeekPosition;
+                if (startAt >= _previewAudioReader.TotalTime - TimeSpan.FromMilliseconds(150))
+                {
+                    startAt = TimeSpan.Zero;
+                    _liveSeekPosition = TimeSpan.Zero;
+                }
+
+                if (startAt > TimeSpan.Zero && startAt < _previewAudioReader.TotalTime)
+                {
+                    _previewAudioReader.CurrentTime = startAt;
+                }
+
                 int outDev = CmbHeadphones.SelectedIndex >= 0 ? CmbHeadphones.SelectedIndex : 0;
                 if (outDev >= WaveOut.DeviceCount) outDev = 0;
 
@@ -400,10 +415,11 @@ namespace WinReckApp
 
         private void PreviewTimer_Tick(object? sender, EventArgs e)
         {
-            if (_previewAudioReader == null || !_isPreviewPlaying) return;
+            if (_previewAudioReader == null || !_isPreviewPlaying || _isLiveScrubbing) return;
 
             // AudioFileReader.CurrentTime is the proven-accurate approach — same as library player.
             var curr     = _previewAudioReader.CurrentTime;
+            _liveSeekPosition = curr;
             double total = _previewAudioReader.TotalTime.TotalMilliseconds;
             double progress = total > 0 ? Math.Clamp(curr.TotalMilliseconds / total, 0.0, 1.0) : 0.0;
 
@@ -435,12 +451,25 @@ namespace WinReckApp
             }
 
             // Restore recorded total time and full session overview
-            var elapsed = _recStopwatch.Elapsed;
-            TxtRecTime.Text = $"{(int)elapsed.TotalMinutes}:{elapsed.Seconds:D2}";
+            byte[] snapshotBytes;
+            lock (_recordedBytes) snapshotBytes = _recordedBytes.ToArray();
+            double totalSecs = snapshotBytes.Length / 192000.0;
+
+            double previewProg = -1;
+            if (_liveSeekPosition > TimeSpan.Zero && totalSecs > 0)
+            {
+                previewProg = Math.Clamp(_liveSeekPosition.TotalSeconds / totalSecs, 0.0, 1.0);
+                TxtRecTime.Text = $"{(int)_liveSeekPosition.TotalMinutes}:{_liveSeekPosition.Seconds:D2}";
+            }
+            else
+            {
+                var elapsed = _recStopwatch.Elapsed;
+                TxtRecTime.Text = $"{(int)elapsed.TotalMinutes}:{elapsed.Seconds:D2}";
+            }
 
             List<float> snapshot;
             lock (_audioLock) snapshot = new List<float>(_liveRecordedBars);
-            DrawScaledSessionWaveform(LiveWaveformCanvas, snapshot, -1);
+            DrawScaledSessionWaveform(LiveWaveformCanvas, snapshot, previewProg);
         }
 
         private void BtnSaveRecording_Click(object sender, RoutedEventArgs e)
@@ -464,6 +493,7 @@ namespace WinReckApp
             _recStopwatch.Reset();
             _isRecording = false;
             _isPaused = false;
+            _liveSeekPosition = TimeSpan.Zero;
 
             lock (_recordedBytes) _recordedBytes.Clear();
             lock (_audioLock)
@@ -493,6 +523,7 @@ namespace WinReckApp
             _recStopwatch.Stop();
             _isRecording = false;
             _isPaused = false;
+            _liveSeekPosition = TimeSpan.Zero;
 
             if (save)
             {
@@ -591,10 +622,11 @@ namespace WinReckApp
 
             double progress = Math.Clamp((pt.X - startX) / totalSpan, 0.0, 1.0);
 
-            if (_previewAudioReader != null && _previewWaveOut != null)
+            if (_previewAudioReader != null && _previewWaveOut != null && _isPreviewPlaying)
             {
                 var targetTime = TimeSpan.FromMilliseconds(progress * _previewAudioReader.TotalTime.TotalMilliseconds);
                 _previewAudioReader.CurrentTime = targetTime;
+                _liveSeekPosition = targetTime;
 
                 var curr = _previewAudioReader.CurrentTime;
                 TxtRecTime.Text = $"{(int)curr.TotalMinutes}:{curr.Seconds:D2}";
@@ -604,8 +636,8 @@ namespace WinReckApp
                 // In paused state without preview playing
                 double totalSecs = snapshot.Length / 192000.0;
                 double targetSecs = progress * totalSecs;
-                var ts = TimeSpan.FromSeconds(targetSecs);
-                TxtRecTime.Text = $"{(int)ts.TotalMinutes}:{ts.Seconds:D2}";
+                _liveSeekPosition = TimeSpan.FromSeconds(targetSecs);
+                TxtRecTime.Text = $"{(int)_liveSeekPosition.TotalMinutes}:{_liveSeekPosition.Seconds:D2}";
             }
 
             List<float> bars;
@@ -2336,8 +2368,12 @@ namespace WinReckApp
 
                 if (totalBars <= barCount)
                 {
-                    if (i < totalBars) amp = bars[i];
-                    else continue;
+                    // Scale smoothly across the entire session width (so 100% of canvas = 100% of audio)
+                    double sPos = (barCount > 1) ? ((double)i / (barCount - 1)) * (totalBars - 1) : 0;
+                    int sIdx0 = (int)sPos;
+                    int sIdx1 = Math.Min(totalBars - 1, sIdx0 + 1);
+                    double frac = sPos - sIdx0;
+                    amp = (float)((1.0 - frac) * bars[sIdx0] + frac * bars[sIdx1]);
                 }
                 else
                 {
