@@ -2,9 +2,22 @@
 
 > The Windows audio recorder you have been searching for.
 
-<img width="1414" height="762" alt="screenshot" src="https://github.com/user-attachments/assets/a225c8dc-69da-4d60-b184-b2dd830f5cfb" />
+![WinReck Main View](assets/screenshot.png)
 
 A native WPF audio recorder for Windows — clean dark UI, live waveform, seekable playback, and a no-nonsense recordings library.
+
+---
+
+## Screenshots
+
+### Live Waveform & Recording Studio
+![Live Waveform & Recording Studio](assets/live-recording.png)
+
+### Folder Navigation & Search
+![Folder Navigation & Search](assets/folder-explorer.png)
+
+### Save Destination Picker
+![Save Destination Picker](assets/destination-picker.png)
 
 ---
 
