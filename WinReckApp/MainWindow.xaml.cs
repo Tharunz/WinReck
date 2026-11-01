@@ -72,17 +72,13 @@ namespace WinReckApp
         private List<float> _pendingLiveSamples = new List<float>();
         private List<float> _liveRecordedBars = new List<float>();
 
-        // Live In-Memory Preview Playback
-        private WaveOut? _previewWaveOut;
-        private RawSourceWaveStream? _previewRawStream;
-        private DispatcherTimer _previewTimer;
-        private bool _isPreviewPlaying = false;
-        private bool _isLiveScrubbing = false;
-        // Seek tracking: WaveOut.GetPosition() is cumulative since Init(), so we record
-        // the hardware byte-count at each seek point and the audio-ms we seeked to.
-        private long   _previewGetPosAtSeek  = 0;   // WaveOut.GetPosition() value at last seek/start
-        private double _previewSeekOffsetMs  = 0;   // stream position in ms at last seek/start
-        private double _previewTotalMs       = 0;   // total duration in ms
+        // Live Preview Playback — uses a temp WAV file + AudioFileReader (same engine as library player)
+        private WaveOut?         _previewWaveOut;
+        private AudioFileReader? _previewAudioReader;
+        private string           _previewTempWav = "";
+        private DispatcherTimer  _previewTimer;
+        private bool             _isPreviewPlaying  = false;
+        private bool             _isLiveScrubbing   = false;
 
         // Library Playback Engine & Seekable Waveform
         private WaveOut? _libWaveOut;
@@ -376,20 +372,22 @@ namespace WinReckApp
             try
             {
                 StopLivePreview();
-                var ms = new MemoryStream(snapshot);
-                _previewRawStream = new RawSourceWaveStream(ms, _studioFormat);
+
+                // Write raw bytes to a temp WAV so AudioFileReader can track CurrentTime
+                // accurately — identical to how the library player works (proven correct).
+                _previewTempWav = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "winreck_preview.wav");
+                using (var writer = new WaveFileWriter(_previewTempWav, _studioFormat))
+                    writer.Write(snapshot, 0, snapshot.Length);
+
+                _previewAudioReader = new AudioFileReader(_previewTempWav);
 
                 int outDev = CmbHeadphones.SelectedIndex >= 0 ? CmbHeadphones.SelectedIndex : 0;
                 if (outDev >= WaveOut.DeviceCount) outDev = 0;
 
                 _previewWaveOut = new WaveOut { DeviceNumber = outDev };
-                _previewWaveOut.Init(_previewRawStream);
+                _previewWaveOut.Init(_previewAudioReader);
                 _previewWaveOut.PlaybackStopped += (s, ev) => Dispatcher.Invoke(StopLivePreview);
-                _previewTotalMs      = _previewRawStream.TotalTime.TotalMilliseconds;
-                _previewSeekOffsetMs = 0;
                 _previewWaveOut.Play();
-                // Snapshot GetPosition() AFTER Play() so the baseline matches the hardware clock start
-                _previewGetPosAtSeek = _previewWaveOut.GetPosition();
                 _isPreviewPlaying = true;
                 _previewTimer.Start();
                 BtnPreviewLive.Content = "Stop Preview";
@@ -402,18 +400,13 @@ namespace WinReckApp
 
         private void PreviewTimer_Tick(object? sender, EventArgs e)
         {
-            if (_previewRawStream == null || _previewWaveOut == null || !_isPreviewPlaying) return;
+            if (_previewAudioReader == null || !_isPreviewPlaying) return;
 
-            if (_previewTotalMs <= 0) return;
+            // AudioFileReader.CurrentTime is the proven-accurate approach — same as library player.
+            var curr     = _previewAudioReader.CurrentTime;
+            double total = _previewAudioReader.TotalTime.TotalMilliseconds;
+            double progress = total > 0 ? Math.Clamp(curr.TotalMilliseconds / total, 0.0, 1.0) : 0.0;
 
-            // WaveOut.GetPosition() returns cumulative bytes clocked out to hardware since Init().
-            // This is the ONLY value that matches actual speaker output — no buffer lag.
-            long hwBytes = _previewWaveOut.GetPosition() - _previewGetPosAtSeek;
-            // 48000 Hz × 2 ch × 2 bytes = 192000 bytes/sec → 192 bytes/ms
-            double elapsedMs = _previewSeekOffsetMs + (hwBytes / 192.0);
-            double progress  = Math.Clamp(elapsedMs / _previewTotalMs, 0.0, 1.0);
-
-            var curr = TimeSpan.FromMilliseconds(Math.Min(elapsedMs, _previewTotalMs));
             TxtRecTime.Text = $"{(int)curr.TotalMinutes}:{curr.Seconds:D2}";
 
             List<float> snapshot;
@@ -431,8 +424,15 @@ namespace WinReckApp
             _previewWaveOut?.Dispose();
             _previewWaveOut = null;
 
-            _previewRawStream?.Dispose();
-            _previewRawStream = null;
+            _previewAudioReader?.Dispose();
+            _previewAudioReader = null;
+
+            // Delete temp WAV (best-effort)
+            if (!string.IsNullOrEmpty(_previewTempWav) && File.Exists(_previewTempWav))
+            {
+                try { File.Delete(_previewTempWav); } catch { }
+                _previewTempWav = "";
+            }
 
             // Restore recorded total time and full session overview
             var elapsed = _recStopwatch.Elapsed;
@@ -591,17 +591,12 @@ namespace WinReckApp
 
             double progress = Math.Clamp((pt.X - startX) / totalSpan, 0.0, 1.0);
 
-            if (_previewRawStream != null && _previewWaveOut != null)
+            if (_previewAudioReader != null && _previewWaveOut != null)
             {
-                long targetByte = (long)(progress * _previewRawStream.Length);
-                targetByte = (targetByte / 4) * 4; // Align to 4-byte stereo 16-bit block
-                _previewRawStream.Position = Math.Clamp(targetByte, 0, _previewRawStream.Length);
+                var targetTime = TimeSpan.FromMilliseconds(progress * _previewAudioReader.TotalTime.TotalMilliseconds);
+                _previewAudioReader.CurrentTime = targetTime;
 
-                // Reset hardware baseline so GetPosition() delta restarts from this seek point
-                _previewSeekOffsetMs  = progress * _previewTotalMs;
-                _previewGetPosAtSeek  = _previewWaveOut.GetPosition();
-
-                var curr = TimeSpan.FromMilliseconds(_previewSeekOffsetMs);
+                var curr = _previewAudioReader.CurrentTime;
                 TxtRecTime.Text = $"{(int)curr.TotalMinutes}:{curr.Seconds:D2}";
             }
             else
