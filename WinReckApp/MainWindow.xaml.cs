@@ -41,6 +41,12 @@ namespace WinReckApp
         public string ExplorerFolder { get; set; } = "";
         public string? SelectedSubfolderPath { get; set; } = null;
         public bool Autoplay { get; set; } = false;
+        public string? SelectedFilePath { get; set; } = null;
+        public double SeekPositionSeconds { get; set; } = 0.0;
+        public double WindowLeft { get; set; } = -1;
+        public double WindowTop { get; set; } = -1;
+        public double WindowWidth { get; set; } = 1120;
+        public double WindowHeight { get; set; } = 640;
     }
 
     public partial class MainWindow : Window
@@ -69,6 +75,8 @@ namespace WinReckApp
 
         // Autoplay on Select State
         private bool _isAutoplayEnabled = false;
+        private string? _pendingRestoreFilePath = null;
+        private double  _pendingRestoreSeekSeconds = 0.0;
 
         // Custom Modal State
         private Action? _modalConfirmAction = null;
@@ -174,6 +182,18 @@ namespace WinReckApp
                                 : null;
                         }
                         _isAutoplayEnabled = cfg.Autoplay;
+                        _pendingRestoreFilePath   = cfg.SelectedFilePath;
+                        _pendingRestoreSeekSeconds = cfg.SeekPositionSeconds;
+                        if (cfg.WindowLeft >= 0)
+                        {
+                            this.Left = cfg.WindowLeft;
+                            this.Top  = cfg.WindowTop;
+                        }
+                        if (cfg.WindowWidth > 200)
+                        {
+                            this.Width  = cfg.WindowWidth;
+                            this.Height = cfg.WindowHeight;
+                        }
                     }
                 }
             }
@@ -191,7 +211,13 @@ namespace WinReckApp
                     RecordingsFolder      = _recordingsFolder,
                     ExplorerFolder        = _explorerFolder,
                     SelectedSubfolderPath = _selectedSubfolderPath,
-                    Autoplay              = _isAutoplayEnabled
+                    Autoplay              = _isAutoplayEnabled,
+                    SelectedFilePath      = _selectedRecording?.FilePath,
+                    SeekPositionSeconds   = _currentSeekPosition.TotalSeconds,
+                    WindowLeft            = this.Left,
+                    WindowTop             = this.Top,
+                    WindowWidth           = this.ActualWidth  > 0 ? this.ActualWidth  : 1120,
+                    WindowHeight          = this.ActualHeight > 0 ? this.ActualHeight : 640
                 };
                 string json = JsonSerializer.Serialize(cfg, new JsonSerializerOptions { WriteIndented = true });
                 File.WriteAllText(ConfigPath, json);
@@ -268,6 +294,30 @@ namespace WinReckApp
                 LoadRecordingsFromDisk(autoSelectFirst: false);
                 DrawEmptyWaveform(LiveWaveformCanvas);
                 DrawEmptyWaveform(PlayWaveformCanvas);
+
+                // Restore previously selected recording and seek position
+                if (!string.IsNullOrEmpty(_pendingRestoreFilePath))
+                {
+                    var toRestore = _recordings.FirstOrDefault(r =>
+                        string.Equals(r.FilePath, _pendingRestoreFilePath, StringComparison.OrdinalIgnoreCase));
+                    if (toRestore != null)
+                    {
+                        SelectRecording(toRestore, allowAutoplay: false);
+                        if (_pendingRestoreSeekSeconds > 0)
+                        {
+                            _currentSeekPosition = TimeSpan.FromSeconds(_pendingRestoreSeekSeconds);
+                            int mins = (int)_currentSeekPosition.TotalMinutes;
+                            int secs = _currentSeekPosition.Seconds;
+                            TxtPlayTime.Text = $"{mins}:{secs:D2}";
+                            EnsureWaveformLoaded(toRestore);
+                            double prog = toRestore.Duration.TotalMilliseconds > 0
+                                ? _currentSeekPosition.TotalMilliseconds / toRestore.Duration.TotalMilliseconds
+                                : 0;
+                            DrawFileWaveform(PlayWaveformCanvas, toRestore.WaveformSamples, prog);
+                        }
+                    }
+                    _pendingRestoreFilePath = null;
+                }
             }));
         }
 
