@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -33,8 +34,23 @@ namespace WinReckApp
         public float[] WaveformSamples { get; set; } = Array.Empty<float>();
     }
 
+    public class AppConfig
+    {
+        public string RootRecordingsFolder { get; set; } = "";
+        public string RecordingsFolder { get; set; } = "";
+        public string ExplorerFolder { get; set; } = "";
+        public string? SelectedSubfolderPath { get; set; } = null;
+        public bool Autoplay { get; set; } = false;
+    }
+
     public partial class MainWindow : Window
     {
+        private static readonly string ConfigDir = System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "WinReck"
+        );
+        private static readonly string ConfigPath = System.IO.Path.Combine(ConfigDir, "config.json");
+
         private bool _isExpanded = false;
         private string _recordingsFolder = "";
         private string _rootRecordingsFolder = "";
@@ -114,7 +130,12 @@ namespace WinReckApp
             );
             _rootRecordingsFolder = _recordingsFolder;
             _explorerFolder = _recordingsFolder;
-            Directory.CreateDirectory(_recordingsFolder);
+
+            LoadConfig();
+            SaveConfig();
+
+            try { Directory.CreateDirectory(_recordingsFolder); } catch { }
+            try { Directory.CreateDirectory(_rootRecordingsFolder); } catch { }
 
             // 50ms interval = 20 bars per second (smooth, rock-solid, fixed bars)
             _recTimer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(50) };
@@ -127,6 +148,61 @@ namespace WinReckApp
             _libPlayTimer.Tick += LibPlayTimer_Tick;
 
             UpdateAutoplayUI();
+        }
+
+        private void LoadConfig()
+        {
+            try
+            {
+                if (File.Exists(ConfigPath))
+                {
+                    string json = File.ReadAllText(ConfigPath);
+                    var cfg = JsonSerializer.Deserialize<AppConfig>(json);
+                    if (cfg != null)
+                    {
+                        if (!string.IsNullOrWhiteSpace(cfg.RootRecordingsFolder) && Directory.Exists(cfg.RootRecordingsFolder))
+                        {
+                            _rootRecordingsFolder = cfg.RootRecordingsFolder;
+                            _explorerFolder = (!string.IsNullOrWhiteSpace(cfg.ExplorerFolder) && Directory.Exists(cfg.ExplorerFolder))
+                                ? cfg.ExplorerFolder
+                                : cfg.RootRecordingsFolder;
+                            _recordingsFolder = (!string.IsNullOrWhiteSpace(cfg.RecordingsFolder) && Directory.Exists(cfg.RecordingsFolder))
+                                ? cfg.RecordingsFolder
+                                : _explorerFolder;
+                            _selectedSubfolderPath = (!string.IsNullOrWhiteSpace(cfg.SelectedSubfolderPath) && Directory.Exists(cfg.SelectedSubfolderPath))
+                                ? cfg.SelectedSubfolderPath
+                                : null;
+                        }
+                        _isAutoplayEnabled = cfg.Autoplay;
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private void SaveConfig()
+        {
+            try
+            {
+                Directory.CreateDirectory(ConfigDir);
+                var cfg = new AppConfig
+                {
+                    RootRecordingsFolder  = _rootRecordingsFolder,
+                    RecordingsFolder      = _recordingsFolder,
+                    ExplorerFolder        = _explorerFolder,
+                    SelectedSubfolderPath = _selectedSubfolderPath,
+                    Autoplay              = _isAutoplayEnabled
+                };
+                string json = JsonSerializer.Serialize(cfg, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(ConfigPath, json);
+            }
+            catch { }
+        }
+
+        protected override void OnClosed(EventArgs e)
+        {
+            SaveConfig();
+            base.OnClosed(e);
         }
 
         private async void Window_Loaded(object sender, RoutedEventArgs e)
@@ -974,6 +1050,7 @@ namespace WinReckApp
         {
             _isAutoplayEnabled = !_isAutoplayEnabled;
             UpdateAutoplayUI();
+            SaveConfig();
         }
 
         private void UpdateAutoplayUI()
@@ -1322,6 +1399,7 @@ namespace WinReckApp
             _explorerFolder = targetFolder;
             _recordingsFolder = targetFolder;
             _selectedSubfolderPath = null;
+            SaveConfig();
             LoadRecordingsFromDisk(autoSelectFirst: false);
             AnimateRecordingsLoad();
         }
@@ -1676,6 +1754,7 @@ namespace WinReckApp
                     }
                 }
             }
+            SaveConfig();
         }
 
         #region Expandable Search Handlers
@@ -2813,6 +2892,7 @@ namespace WinReckApp
 
         private void BtnClose_Click(object sender, RoutedEventArgs e)
         {
+            SaveConfig();
             _waveIn?.StopRecording();
             _waveIn?.Dispose();
             StopLivePreview();
@@ -2839,6 +2919,7 @@ namespace WinReckApp
                 _explorerFolder = dialog.FolderName;
                 _recordingsFolder = dialog.FolderName;
                 _selectedSubfolderPath = null;
+                SaveConfig();
                 LoadRecordingsFromDisk();
                 AnimateRecordingsLoad();
             }
