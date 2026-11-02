@@ -91,6 +91,9 @@ namespace WinReckApp
 
         private readonly WaveFormat _studioFormat = new WaveFormat(48000, 16, 2);
 
+        [System.Runtime.InteropServices.DllImport("shlwapi.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, ExactSpelling = true)]
+        private static extern int StrCmpLogicalW(string psz1, string psz2);
+
         // Unified High-End Color Palette
         private static readonly Color CyanNeon       = Color.FromRgb(0, 229, 255);
         private static readonly Color PinkNeon       = Color.FromRgb(255, 42, 133);
@@ -680,15 +683,37 @@ namespace WinReckApp
         #endregion
 
         #region Interactive Player & Seekable Waveform
+        private void EnsureWaveformLoaded(RecordingItem item)
+        {
+            if (item == null) return;
+            if (item.WaveformSamples != null && item.WaveformSamples.Length > 0) return;
+            try
+            {
+                if (File.Exists(item.FilePath))
+                {
+                    using var reader = new AudioFileReader(item.FilePath);
+                    item.WaveformSamples = GenerateWaveformSamples(reader, 320);
+                }
+            }
+            catch
+            {
+                item.WaveformSamples = Array.Empty<float>();
+            }
+        }
+
         private void SelectRecording(RecordingItem item)
         {
+            if (item == null) return;
+            EnsureWaveformLoaded(item);
             _selectedRecording = item;
             _currentSeekPosition = TimeSpan.Zero;
             StopLibPlayback();
 
             TxtPlayingTitle.Text = item.Title;
             TxtPlayingTitle.Foreground = Brushes.White;
-            TxtPlayingDescription.Text = $"{item.DateStr}   •   {item.DurationStr}   •   {item.FileSizeStr}   •   48kHz WAV";
+            string ext = System.IO.Path.GetExtension(item.FilePath).TrimStart('.').ToUpperInvariant();
+            if (string.IsNullOrEmpty(ext)) ext = "AUDIO";
+            TxtPlayingDescription.Text = $"{item.DateStr}   •   {item.DurationStr}   •   {item.FileSizeStr}   •   {ext}";
             TxtPlayingDescription.Foreground = new SolidColorBrush(Color.FromRgb(140, 140, 140));
             PlayingDotIndicator.Fill = new SolidColorBrush(CyanNeon);
             TxtPlayTime.Text = "0:00";
@@ -750,6 +775,7 @@ namespace WinReckApp
             try
             {
                 if (!File.Exists(item.FilePath)) return;
+                EnsureWaveformLoaded(item);
 
                 _currentSeekPosition = startAt;
 
@@ -1086,6 +1112,7 @@ namespace WinReckApp
             try
             {
                 var dirs = Directory.GetDirectories(_explorerFolder);
+                Array.Sort(dirs, (a, b) => StrCmpLogicalW(System.IO.Path.GetFileName(a), System.IO.Path.GetFileName(b)));
                 foreach (var d in dirs)
                 {
                     int audioCount = 0;
@@ -1125,19 +1152,23 @@ namespace WinReckApp
             {
                 var wavFiles = Directory.GetFiles(_recordingsFolder, "*.wav");
                 var mp3Files = Directory.GetFiles(_recordingsFolder, "*.mp3");
-                var allFiles = wavFiles.Concat(mp3Files)
-                                       .OrderByDescending(f => File.GetCreationTime(f))
-                                       .ToList();
+                var allFiles = wavFiles.Concat(mp3Files).ToList();
+                allFiles.Sort((a, b) => StrCmpLogicalW(System.IO.Path.GetFileName(a), System.IO.Path.GetFileName(b)));
 
                 foreach (var f in allFiles)
                 {
                     try
                     {
-                        using var reader = new AudioFileReader(f);
-                        var dur   = reader.TotalTime;
+                        TimeSpan dur = TimeSpan.Zero;
+                        try
+                        {
+                            using var reader = new AudioFileReader(f);
+                            dur = reader.TotalTime;
+                        }
+                        catch { }
+
                         var date  = File.GetCreationTime(f).ToString("dd-MM-yyyy");
                         var title = System.IO.Path.GetFileNameWithoutExtension(f);
-                        float[] samples = GenerateWaveformSamples(reader, 320);
 
                         var fi = new FileInfo(f);
                         long bytes = fi.Length;
@@ -1153,7 +1184,7 @@ namespace WinReckApp
                             DurationStr     = $"{(int)dur.TotalMinutes}:{dur.Seconds:D2}",
                             DateStr         = date,
                             FileSizeStr     = sizeStr,
-                            WaveformSamples = samples
+                            WaveformSamples = Array.Empty<float>()
                         });
                     }
                     catch { }
@@ -1170,9 +1201,12 @@ namespace WinReckApp
                 var existing = _recordings.FirstOrDefault(r => r.FilePath == _selectedRecording.FilePath);
                 if (existing != null)
                 {
+                    EnsureWaveformLoaded(existing);
                     _selectedRecording = existing;
                     TxtPlayingTitle.Text = existing.Title;
-                    TxtPlayingDescription.Text = $"{existing.DateStr}   •   {existing.DurationStr}   •   {existing.FileSizeStr}   •   48kHz WAV";
+                    string ext = System.IO.Path.GetExtension(existing.FilePath).TrimStart('.').ToUpperInvariant();
+                    if (string.IsNullOrEmpty(ext)) ext = "AUDIO";
+                    TxtPlayingDescription.Text = $"{existing.DateStr}   •   {existing.DurationStr}   •   {existing.FileSizeStr}   •   {ext}";
                 }
                 else
                 {
@@ -2607,6 +2641,7 @@ namespace WinReckApp
         {
             if (_selectedRecording != null)
             {
+                EnsureWaveformLoaded(_selectedRecording);
                 double prog = (_selectedRecording.Duration.TotalMilliseconds > 0)
                     ? _currentSeekPosition.TotalMilliseconds / _selectedRecording.Duration.TotalMilliseconds
                     : 0;
