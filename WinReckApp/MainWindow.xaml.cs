@@ -51,6 +51,9 @@ namespace WinReckApp
         private bool _isBatchSelectMode = false;
         private HashSet<string> _selectedFilePaths = new HashSet<string>();
 
+        // Autoplay on Select State
+        private bool _isAutoplayEnabled = false;
+
         // Custom Modal State
         private Action? _modalConfirmAction = null;
 
@@ -121,6 +124,8 @@ namespace WinReckApp
 
             _libPlayTimer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(30) };
             _libPlayTimer.Tick += LibPlayTimer_Tick;
+
+            UpdateAutoplayUI();
         }
 
         private async void Window_Loaded(object sender, RoutedEventArgs e)
@@ -701,7 +706,7 @@ namespace WinReckApp
             }
         }
 
-        private void SelectRecording(RecordingItem item)
+        private void SelectRecording(RecordingItem item, bool allowAutoplay = false)
         {
             if (item == null) return;
             EnsureWaveformLoaded(item);
@@ -710,16 +715,21 @@ namespace WinReckApp
             StopLibPlayback();
 
             TxtPlayingTitle.Text = item.Title;
-            TxtPlayingTitle.Foreground = Brushes.White;
+            TxtPlayingTitle.Foreground = new SolidColorBrush(Color.FromRgb(240, 244, 248));
             string ext = System.IO.Path.GetExtension(item.FilePath).TrimStart('.').ToUpperInvariant();
             if (string.IsNullOrEmpty(ext)) ext = "AUDIO";
             TxtPlayingDescription.Text = $"{item.DateStr}   •   {item.DurationStr}   •   {item.FileSizeStr}   •   {ext}";
-            TxtPlayingDescription.Foreground = new SolidColorBrush(Color.FromRgb(140, 140, 140));
+            TxtPlayingDescription.Foreground = new SolidColorBrush(Color.FromRgb(150, 160, 175));
             PlayingDotIndicator.Fill = new SolidColorBrush(CyanNeon);
             TxtPlayTime.Text = "0:00";
 
             RefreshRecordingsUI();
             DrawFileWaveform(PlayWaveformCanvas, item.WaveformSamples, 0);
+
+            if (allowAutoplay && _isAutoplayEnabled)
+            {
+                StartLibPlayback(item, TimeSpan.Zero);
+            }
         }
 
         private void ClearSelectedRecording()
@@ -945,6 +955,62 @@ namespace WinReckApp
             e.Handled = true;
             WaveformScrollViewer.ScrollToHorizontalOffset(
                 WaveformScrollViewer.HorizontalOffset - e.Delta * 0.5);
+        }
+
+        private void BtnToggleAutoplay_Click(object sender, RoutedEventArgs e)
+        {
+            _isAutoplayEnabled = !_isAutoplayEnabled;
+            UpdateAutoplayUI();
+        }
+
+        private void UpdateAutoplayUI()
+        {
+            if (_isAutoplayEnabled)
+            {
+                if (BtnToggleAutoplay != null)
+                {
+                    BtnToggleAutoplay.Content = "Auto: ON";
+                    BtnToggleAutoplay.Foreground = new SolidColorBrush(CyanNeon);
+                    BtnToggleAutoplay.BorderBrush = new SolidColorBrush(CyanNeon);
+                    BtnToggleAutoplay.Background = new SolidColorBrush(Color.FromArgb(45, 0, 229, 255));
+                }
+                if (BtnPlayerAutoplay != null)
+                {
+                    BtnPlayerAutoplay.BorderBrush = new SolidColorBrush(CyanNeon);
+                    BtnPlayerAutoplay.Background = new SolidColorBrush(Color.FromArgb(45, 0, 229, 255));
+                }
+                if (TxtPlayerAutoplayDot != null)
+                {
+                    TxtPlayerAutoplayDot.Foreground = new SolidColorBrush(CyanNeon);
+                }
+                if (TxtPlayerAutoplayText != null)
+                {
+                    TxtPlayerAutoplayText.Foreground = new SolidColorBrush(CyanNeon);
+                }
+            }
+            else
+            {
+                if (BtnToggleAutoplay != null)
+                {
+                    BtnToggleAutoplay.Content = "Auto: OFF";
+                    BtnToggleAutoplay.Foreground = new SolidColorBrush(Color.FromRgb(150, 150, 150));
+                    BtnToggleAutoplay.BorderBrush = new SolidColorBrush(Color.FromRgb(46, 46, 46));
+                    BtnToggleAutoplay.Background = new SolidColorBrush(Color.FromRgb(17, 17, 17));
+                }
+                if (BtnPlayerAutoplay != null)
+                {
+                    BtnPlayerAutoplay.BorderBrush = new SolidColorBrush(Color.FromRgb(46, 46, 46));
+                    BtnPlayerAutoplay.Background = new SolidColorBrush(Color.FromRgb(17, 17, 17));
+                }
+                if (TxtPlayerAutoplayDot != null)
+                {
+                    TxtPlayerAutoplayDot.Foreground = new SolidColorBrush(Color.FromRgb(85, 85, 85));
+                }
+                if (TxtPlayerAutoplayText != null)
+                {
+                    TxtPlayerAutoplayText.Foreground = new SolidColorBrush(Color.FromRgb(150, 150, 150));
+                }
+            }
         }
 
         private void BtnToggleSelectMode_Click(object sender, RoutedEventArgs e)
@@ -1964,8 +2030,9 @@ namespace WinReckApp
                     TextBlock title = new TextBlock
                     {
                         Text              = item.Title,
-                        FontSize          = 12,
-                        Foreground        = isSelected ? Brushes.White : new SolidColorBrush(Color.FromRgb(170, 170, 170)),
+                        FontSize          = 12.5,
+                        FontWeight        = isSelected ? FontWeights.SemiBold : FontWeights.Normal,
+                        Foreground        = isSelected ? new SolidColorBrush(Color.FromRgb(245, 247, 250)) : new SolidColorBrush(Color.FromRgb(205, 212, 222)),
                         TextTrimming      = TextTrimming.CharacterEllipsis,
                         VerticalAlignment = VerticalAlignment.Center
                     };
@@ -1977,8 +2044,8 @@ namespace WinReckApp
                 TextBlock dur = new TextBlock
                 {
                     Text                = item.DurationStr,
-                    FontSize            = 11,
-                    Foreground          = new SolidColorBrush(Color.FromRgb(120, 120, 120)),
+                    FontSize            = 11.5,
+                    Foreground          = new SolidColorBrush(Color.FromRgb(150, 160, 175)),
                     HorizontalAlignment = HorizontalAlignment.Right,
                     VerticalAlignment   = VerticalAlignment.Center
                 };
@@ -1988,8 +2055,8 @@ namespace WinReckApp
                 TextBlock dt = new TextBlock
                 {
                     Text                = item.DateStr,
-                    FontSize            = 10,
-                    Foreground          = new SolidColorBrush(Color.FromRgb(100, 100, 100)),
+                    FontSize            = 10.5,
+                    Foreground          = new SolidColorBrush(Color.FromRgb(130, 140, 155)),
                     HorizontalAlignment = HorizontalAlignment.Right,
                     VerticalAlignment   = VerticalAlignment.Center,
                     Margin              = new Thickness(0, 0, 2, 0)
@@ -2061,7 +2128,7 @@ namespace WinReckApp
                         ToggleItemSelection(item.FilePath);
                         return;
                     }
-                    if (ev.ClickCount == 1)      SelectRecording(item);
+                    if (ev.ClickCount == 1)      SelectRecording(item, allowAutoplay: true);
                     else if (ev.ClickCount == 2) StartInlineRename(item.FilePath);
                 };
 
