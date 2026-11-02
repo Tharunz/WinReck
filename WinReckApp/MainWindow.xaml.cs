@@ -91,6 +91,7 @@ namespace WinReckApp
         private bool _isLibPlaying = false;
         private bool _isScrubbing = false;
         private TimeSpan _currentSeekPosition = TimeSpan.Zero;
+        private int _playbackSessionId = 0;
 
         private readonly WaveFormat _studioFormat = new WaveFormat(48000, 16, 2);
 
@@ -801,6 +802,8 @@ namespace WinReckApp
 
                 StopLibPlayback();
 
+                int currentSession = ++_playbackSessionId;
+
                 _libAudioReader = new AudioFileReader(item.FilePath);
                 if (startAt < _libAudioReader.TotalTime)
                     _libAudioReader.CurrentTime = startAt;
@@ -812,16 +815,16 @@ namespace WinReckApp
                 _libWaveOut.Init(_libAudioReader);
                 _libWaveOut.PlaybackStopped += (s, a) =>
                 {
-                    if (_isLibPlaying)
+                    Dispatcher.Invoke(() =>
                     {
-                        Dispatcher.Invoke(() =>
-                        {
-                            StopLibPlayback();
-                            _currentSeekPosition = TimeSpan.Zero;
-                            TxtPlayTime.Text = "0:00";
-                            DrawFileWaveform(PlayWaveformCanvas, item.WaveformSamples, 0);
-                        });
-                    }
+                        // Ignore callback if another audio or stop was triggered
+                        if (currentSession != _playbackSessionId) return;
+
+                        StopLibPlayback();
+                        _currentSeekPosition = TimeSpan.Zero;
+                        TxtPlayTime.Text = "0:00";
+                        DrawFileWaveform(PlayWaveformCanvas, item.WaveformSamples, 0);
+                    });
                 };
 
                 _libWaveOut.Play();
@@ -850,16 +853,26 @@ namespace WinReckApp
 
         private void StopLibPlayback()
         {
+            ++_playbackSessionId;
+
             _libPlayTimer.Stop();
             _isLibPlaying = false;
             UpdatePlaybackButtonUI(false);
 
-            _libWaveOut?.Stop();
-            _libWaveOut?.Dispose();
-            _libWaveOut = null;
+            if (_libWaveOut != null)
+            {
+                var waveToStop = _libWaveOut;
+                _libWaveOut = null;
+                try { waveToStop.Stop(); } catch { }
+                try { waveToStop.Dispose(); } catch { }
+            }
 
-            _libAudioReader?.Dispose();
-            _libAudioReader = null;
+            if (_libAudioReader != null)
+            {
+                var readerToDispose = _libAudioReader;
+                _libAudioReader = null;
+                try { readerToDispose.Dispose(); } catch { }
+            }
         }
 
         private void UpdatePlaybackButtonUI(bool isPlaying)
@@ -2128,8 +2141,7 @@ namespace WinReckApp
                         ToggleItemSelection(item.FilePath);
                         return;
                     }
-                    if (ev.ClickCount == 1)      SelectRecording(item, allowAutoplay: true);
-                    else if (ev.ClickCount == 2) StartInlineRename(item.FilePath);
+                    SelectRecording(item, allowAutoplay: true);
                 };
 
                 // Hover effect
